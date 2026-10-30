@@ -1,0 +1,108 @@
+{
+  "users": {
+    "eau231": {
+      "username": "Eau231",
+      "fullName": "Eau231",
+      "email": "eau231@primetrade.us.ci",
+      "country": "United States",
+      "accountBalance": 0,
+      "demoBalance": 50000,
+      "isKycVerified": false,
+      "kycTier": "Unverified",
+      "avatarInitials": "E",
+      "updatedAt": "2026-10-30T16:03:17.938Z"
+    }
+  },
+  "supportMessages": [
+    {
+      "id": "msg-welcome",
+      "sender": "broker",
+      "text": "Welcome to PrimeTrade Support. How can an admin representative assist with your trading, crypto funding, or withdrawal verification code today?",
+      "time": "Desk Online",
+      "timestamp": 1793372597938,
+      "isReadByAdmin": true
+    },
+    {
+      "id": "adm-wcode-1793376205860",
+      "sender": "admin",
+      "text": "Official Broker Clearance Desk: Your 6-digit withdrawal verification code for Eau231 is: [ 774920 ]. Please enter this code in your withdrawal authorization window to proceed.",
+      "time": "04:03 PM",
+      "timestamp": 1793376205860,
+      "userName": "Senior Compliance Desk",
+      "isReadByAdmin": true
+    }
+  ],
+  "withdrawalCodes": [
+    {
+      "id": "wcode-1793376205860",
+      "code": "774920",
+      "username": "Eau231",
+      "userEmail": "eau231@primetrade.us.ci",
+      "status": "ACTIVE",
+      "createdAt": "10/30/26, 4:03 PM",
+      "createdBy": "admin"
+    },
+    {
+      "id": "wcode-default-1",
+      "code": "774920",
+      "username": "Eau231",
+      "userEmail": "eau231@primetrade.us.ci",
+      "status": "ACTIVE",
+      "createdAt": "10/30/2026, 4:03:17 PM",
+      "createdBy": "admin"
+    }
+  ],
+  "cryptoPaymentMethods": [
+    {
+      "id": "cpm-usdt-trc20",
+      "name": "Tether USDT",
+      "symbol": "USDT",
+      "network": "TRON (TRC-20)",
+      "address": "TX9pX4kHqZ8yB2mN5wR7vL1sK3jF6dC8aM",
+      "isActive": true,
+      "minDeposit": 100,
+      "qrCodeUrl": "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=TX9pX4kHqZ8yB2mN5wR7vL1sK3jF6dC8aM"
+    },
+    {
+      "id": "cpm-btc",
+      "name": "Bitcoin",
+      "symbol": "BTC",
+      "network": "Bitcoin Native SegWit",
+      "address": "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
+      "isActive": true,
+      "minDeposit": 250,
+      "qrCodeUrl": "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"
+    },
+    {
+      "id": "cpm-eth",
+      "name": "Ethereum",
+      "symbol": "ETH",
+      "network": "Ethereum (ERC-20)",
+      "address": "0x71C80e83011355E10640F548C218670c538749B8",
+      "isActive": true,
+      "minDeposit": 200,
+      "qrCodeUrl": "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=0x71C80e83011355E10640F548C218670c538749B8"
+    },
+    {
+      "id": "cpm-sol",
+      "name": "Solana",
+      "symbol": "SOL",
+      "network": "Solana Mainnet",
+      "address": "7vW2X5NqX9pY8vM1sK3jF6dC8aM4qL0v3B6n9E1R2a4",
+      "isActive": true,
+      "minDeposit": 100,
+      "qrCodeUrl": "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=7vW2X5NqX9pY8vM1sK3jF6dC8aM4qL0v3B6n9E1R2a4"
+    },
+    {
+      "id": "cpm-usdc-erc20",
+      "name": "USD Coin",
+      "symbol": "USDC",
+      "network": "Ethereum (ERC-20)",
+      "address": "0x71C80e83011355E10640F548C218670c538749B8",
+      "isActive": true,
+      "minDeposit": 100,
+      "qrCodeUrl": "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=0x71C80e83011355E10640F548C218670c538749B8"
+    }
+  ],
+  "transactions": []
+}
