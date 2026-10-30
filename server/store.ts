@@ -58,13 +58,31 @@ export interface StoredCryptoPaymentMethod {
 export interface StoredTransaction {
   id: string;
   username: string;
+  userFullName?: string;
+  userEmail?: string;
   type: string;
   amount: number;
   asset: string;
-  status: 'COMPLETED' | 'PENDING' | 'PROCESSING';
+  status: 'COMPLETED' | 'PENDING' | 'PROCESSING' | 'REJECTED';
   date: string;
   hashOrReference: string;
   note?: string;
+  proofUrl?: string;
+}
+
+export interface StoredKycSubmission {
+  id: string;
+  username: string;
+  fullName: string;
+  email: string;
+  idType: string;
+  docNumber: string;
+  issueCountry: string;
+  frontDocName?: string;
+  proofDocName?: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  submittedAt: string;
+  reviewedAt?: string;
 }
 
 export interface AppStoreData {
@@ -73,6 +91,7 @@ export interface AppStoreData {
   withdrawalCodes: StoredWithdrawalCode[];
   cryptoPaymentMethods: StoredCryptoPaymentMethod[];
   transactions: StoredTransaction[];
+  kycSubmissions: StoredKycSubmission[];
 }
 
 const DEFAULT_CRYPTO_METHODS: StoredCryptoPaymentMethod[] = [
@@ -166,7 +185,8 @@ function getInitialStore(): AppStoreData {
       }
     ],
     cryptoPaymentMethods: DEFAULT_CRYPTO_METHODS,
-    transactions: []
+    transactions: [],
+    kycSubmissions: []
   };
 }
 
@@ -193,6 +213,7 @@ export function loadStore(): AppStoreData {
           storeMemory.cryptoPaymentMethods = DEFAULT_CRYPTO_METHODS;
         }
         if (!storeMemory.transactions) storeMemory.transactions = [];
+        if (!storeMemory.kycSubmissions) storeMemory.kycSubmissions = [];
 
         // Ensure eau231 is accessible
         if (!storeMemory.users['eau231']) {
@@ -307,4 +328,145 @@ export function adjustUserBalanceInStore(username: string, delta: number, note?:
 export function getAllStoredUsers(): StoredUser[] {
   const store = loadStore();
   return Object.values(store.users);
+}
+
+export function deleteStoredUser(username: string): boolean {
+  const store = loadStore();
+  const key = username.toLowerCase().trim();
+  if (store.users[key]) {
+    delete store.users[key];
+    saveStore(store);
+    return true;
+  }
+  return false;
+}
+
+export function updateUserKyc(username: string, isVerified: boolean, tier?: string): StoredUser | null {
+  const store = loadStore();
+  const user = getStoredUser(username);
+  if (!user) return null;
+
+  user.isKycVerified = isVerified;
+  user.kycTier = tier || (isVerified ? 'Tier 2 Institutional Verified' : 'Unverified');
+  user.updatedAt = new Date().toISOString();
+
+  store.users[user.username.toLowerCase()] = user;
+  saveStore(store);
+  return user;
+}
+
+// Transaction Helpers
+export function addTransaction(tx: Omit<StoredTransaction, 'id' | 'date'> & { id?: string; date?: string }): StoredTransaction {
+  const store = loadStore();
+  const newTx: StoredTransaction = {
+    id: tx.id || `tx-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    username: tx.username,
+    userFullName: tx.userFullName,
+    userEmail: tx.userEmail,
+    type: tx.type,
+    amount: tx.amount,
+    asset: tx.asset,
+    status: tx.status,
+    date: tx.date || new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
+    hashOrReference: tx.hashOrReference || `BEM-TX-${Math.floor(100000 + Math.random() * 900000)}`,
+    note: tx.note,
+    proofUrl: tx.proofUrl
+  };
+
+  store.transactions.unshift(newTx);
+  saveStore(store);
+  return newTx;
+}
+
+export function updateTransactionStatus(
+  idOrRef: string,
+  status: 'COMPLETED' | 'PENDING' | 'PROCESSING' | 'REJECTED',
+  note?: string
+): StoredTransaction | null {
+  const store = loadStore();
+  const match = store.transactions.find(t => t.id === idOrRef || t.hashOrReference === idOrRef);
+  if (!match) return null;
+
+  match.status = status;
+  if (note) match.note = note;
+
+  // If approved and was a deposit, credit the user balance
+  if (status === 'COMPLETED' && match.type === 'DEPOSIT') {
+    const user = getStoredUser(match.username);
+    if (user) {
+      user.accountBalance = Number(((Number(user.accountBalance) || 0) + Number(match.amount)).toFixed(2));
+      user.updatedAt = new Date().toISOString();
+      store.users[user.username.toLowerCase()] = user;
+    }
+  }
+
+  saveStore(store);
+  return match;
+}
+
+export function getAllTransactions(username?: string): StoredTransaction[] {
+  const store = loadStore();
+  if (!username) return store.transactions;
+  const target = username.toLowerCase().trim();
+  return store.transactions.filter(t => t.username.toLowerCase() === target);
+}
+
+// KYC Helpers
+export function addKycSubmission(sub: Omit<StoredKycSubmission, 'id' | 'submittedAt' | 'status'>): StoredKycSubmission {
+  const store = loadStore();
+  const newSub: StoredKycSubmission = {
+    id: `kyc-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    username: sub.username,
+    fullName: sub.fullName,
+    email: sub.email,
+    idType: sub.idType,
+    docNumber: sub.docNumber,
+    issueCountry: sub.issueCountry,
+    frontDocName: sub.frontDocName,
+    proofDocName: sub.proofDocName,
+    status: 'PENDING',
+    submittedAt: new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })
+  };
+
+  // Update user status to Pending Verification
+  const user = getStoredUser(sub.username);
+  if (user) {
+    user.kycTier = 'Pending Verification';
+    user.updatedAt = new Date().toISOString();
+    store.users[user.username.toLowerCase()] = user;
+  }
+
+  store.kycSubmissions.unshift(newSub);
+  saveStore(store);
+  return newSub;
+}
+
+export function getAllKycSubmissions(): StoredKycSubmission[] {
+  const store = loadStore();
+  return store.kycSubmissions;
+}
+
+export function reviewKycSubmission(id: string, status: 'APPROVED' | 'REJECTED'): StoredKycSubmission | null {
+  const store = loadStore();
+  const sub = store.kycSubmissions.find(s => s.id === id);
+  if (!sub) return null;
+
+  sub.status = status;
+  sub.reviewedAt = new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+
+  const user = getStoredUser(sub.username);
+  if (user) {
+    if (status === 'APPROVED') {
+      user.isKycVerified = true;
+      user.kycTier = 'Tier 2 Institutional Verified';
+    } else {
+      user.isKycVerified = false;
+      user.kycTier = 'Verification Rejected';
+    }
+    user.updatedAt = new Date().toISOString();
+    store.users[user.username.toLowerCase()] = user;
+  }
+
+  saveStore(store);
+  return sub;
 }

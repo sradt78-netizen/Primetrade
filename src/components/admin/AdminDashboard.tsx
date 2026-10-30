@@ -140,12 +140,64 @@ export const AdminDashboard: React.FC = () => {
     } catch (_) {}
   };
 
+  // KYC Document Submissions Desk State
+  const [kycSubmissions, setKycSubmissions] = useState<Array<{
+    id: string;
+    username: string;
+    fullName: string;
+    email: string;
+    idType: string;
+    docNumber: string;
+    issueCountry: string;
+    frontDocumentName?: string;
+    proofDocumentName?: string;
+    status: 'PENDING' | 'APPROVED' | 'REJECTED';
+    submittedAt: string;
+    reviewedAt?: string;
+  }>>([]);
+
+  const fetchKycSubmissions = async () => {
+    try {
+      const res = await fetch('/api/kyc-submissions');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.submissions)) {
+          setKycSubmissions(data.submissions);
+        }
+      }
+    } catch (_) {}
+  };
+
+  const handleReviewKyc = async (id: string, status: 'APPROVED' | 'REJECTED') => {
+    try {
+      const res = await fetch('/api/kyc-review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status })
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data && data.success) {
+        showToast(`KYC submission marked as ${status}!`, 'success');
+        await fetchKycSubmissions();
+        await fetchServerUsers();
+      } else {
+        showToast(data?.error || 'Failed to update KYC status', 'error');
+      }
+    } catch (err) {
+      showToast('Error communicating with compliance server', 'error');
+    }
+  };
+
+  const [activeChatUser, setActiveChatUser] = useState<string>('Eau231');
+
   useEffect(() => {
     fetchServerUsers();
     fetchWithdrawalCodes();
+    fetchKycSubmissions();
     const interval = setInterval(() => {
       fetchServerUsers();
       fetchWithdrawalCodes();
+      fetchKycSubmissions();
     }, 3500);
     return () => clearInterval(interval);
   }, []);
@@ -215,6 +267,56 @@ export const AdminDashboard: React.FC = () => {
   const [adjustmentAmount, setAdjustmentAmount] = useState<number>(1000);
   const [adjustmentNote, setAdjustmentNote] = useState('Brokerage Capital Credit');
   const [searchClient, setSearchClient] = useState('');
+
+  // Create New Investor Client State
+  const [isAddingClient, setIsAddingClient] = useState<boolean>(false);
+  const [newClientUsername, setNewClientUsername] = useState<string>('');
+  const [newClientFullName, setNewClientFullName] = useState<string>('');
+  const [newClientEmail, setNewClientEmail] = useState<string>('');
+  const [newClientCountry, setNewClientCountry] = useState<string>('United States');
+  const [newClientBalance, setNewClientBalance] = useState<number>(1000);
+  const [isSubmittingNewClient, setIsSubmittingNewClient] = useState<boolean>(false);
+
+  const handleCreateClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newClientUsername.trim() || !newClientFullName.trim() || !newClientEmail.trim()) {
+      showToast('Please provide username, full name, and email', 'error');
+      return;
+    }
+    setIsSubmittingNewClient(true);
+    try {
+      const res = await fetch('/api/user-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: newClientUsername.trim(),
+          fullName: newClientFullName.trim(),
+          email: newClientEmail.trim(),
+          country: newClientCountry,
+          accountBalance: Number(newClientBalance) || 0,
+          demoBalance: 50000,
+          isKycVerified: false,
+          kycTier: 'Unverified',
+          avatarInitials: newClientFullName.trim().split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'U'
+        })
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success) {
+        showToast(`Investor @${newClientUsername.trim()} registered and added to ledger!`, 'success');
+        setIsAddingClient(false);
+        setNewClientUsername('');
+        setNewClientFullName('');
+        setNewClientEmail('');
+        await fetchServerUsers();
+      } else {
+        showToast(data?.error || 'Failed to create investor account', 'error');
+      }
+    } catch (_) {
+      showToast('Error communicating with server', 'error');
+    } finally {
+      setIsSubmittingNewClient(false);
+    }
+  };
 
   // Payment Methods Desk State (Admin managed crypto channels)
   const [isAddingCryptoMethod, setIsAddingCryptoMethod] = useState<boolean>(false);
@@ -640,40 +742,56 @@ export const AdminDashboard: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-[#0a1020] border border-slate-800 rounded-2xl p-5 shadow-lg">
+            <div
+              onClick={() => setAdminTab('clients')}
+              className="bg-[#0a1020] border border-slate-800 hover:border-blue-500/40 transition rounded-2xl p-5 shadow-lg cursor-pointer"
+            >
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
                 Active Client Accounts
               </span>
               <div className="text-2xl font-extrabold text-white font-mono">
-                1,428 Traders
+                {serverUsers.length} Registered {serverUsers.length === 1 ? 'Investor' : 'Investors'}
               </div>
               <div className="text-[11px] text-blue-400 mt-1">
-                US, EU & Institutional Global
+                {serverUsers.filter(u => u.isKycVerified).length} KYC Approved • {serverUsers.filter(u => !u.isKycVerified).length} Pending Review
               </div>
             </div>
 
-            <div className="bg-[#0a1020] border border-slate-800 rounded-2xl p-5 shadow-lg">
+            <div
+              onClick={() => {
+                if (kycSubmissions.some(k => k.status === 'PENDING')) setAdminTab('kyc');
+                else setAdminTab('funds');
+              }}
+              className="bg-[#0a1020] border border-slate-800 hover:border-amber-500/40 transition rounded-2xl p-5 shadow-lg cursor-pointer"
+            >
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                24H Matched Volume
+                Pending Broker Actions
               </span>
-              <div className="text-2xl font-extrabold text-white font-mono">
-                $4,892,100.00
-              </div>
-              <div className="text-[11px] text-cyan-400 mt-1">
-                Sub-millisecond matched orders
-              </div>
-            </div>
-
-            <div className="bg-[#0a1020] border border-slate-800 rounded-2xl p-5 shadow-lg">
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                Circuit Breaker Status
-              </span>
-              <div className="text-2xl font-extrabold text-emerald-400 font-mono flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping inline-block" />
-                <span>NORMAL</span>
+              <div className="text-2xl font-extrabold text-amber-400 font-mono">
+                {transactions.filter(t => t.status === 'PENDING').length + kycSubmissions.filter(k => k.status === 'PENDING').length} Action Items
               </div>
               <div className="text-[11px] text-slate-400 mt-1">
-                All order matching engines online
+                {transactions.filter(t => t.status === 'PENDING').length} Payments • {kycSubmissions.filter(k => k.status === 'PENDING').length} KYC Submissions
+              </div>
+            </div>
+
+            <div
+              onClick={() => setAdminTab('chat')}
+              className="bg-[#0a1020] border border-slate-800 hover:border-emerald-500/40 transition rounded-2xl p-5 shadow-lg cursor-pointer"
+            >
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                Live Support Inbound Desk
+              </span>
+              <div className="text-2xl font-extrabold text-white font-mono flex items-center gap-2">
+                <span>{supportMessages.filter(m => m.sender === 'user').length} Inbound</span>
+                {unreadAdminChatCount > 0 && (
+                  <span className="text-xs bg-amber-500/20 text-amber-400 border border-amber-500/40 px-2 py-0.5 rounded-full font-sans">
+                    {unreadAdminChatCount} New
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-emerald-400 mt-1">
+                Real-time synchronized with mobile widgets
               </div>
             </div>
           </div>
@@ -738,17 +856,130 @@ export const AdminDashboard: React.FC = () => {
                 </p>
               </div>
 
-              <div className="relative min-w-[240px]">
-                <Search size={15} className="absolute left-3 top-3 text-slate-400" />
-                <input
-                  type="text"
-                  value={searchClient}
-                  onChange={(e) => setSearchClient(e.target.value)}
-                  placeholder="Search client username, email, ID..."
-                  className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white"
-                />
+              <div className="flex items-center gap-2">
+                <div className="relative min-w-[200px]">
+                  <Search size={15} className="absolute left-3 top-3 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchClient}
+                    onChange={(e) => setSearchClient(e.target.value)}
+                    placeholder="Search username, email..."
+                    className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsAddingClient(!isAddingClient)}
+                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-blue-600/30 whitespace-nowrap"
+                >
+                  <Plus size={14} />
+                  <span>{isAddingClient ? 'Close' : 'Add Client'}</span>
+                </button>
               </div>
             </div>
+
+            {/* New Investor Registration Form */}
+            {isAddingClient && (
+              <form onSubmit={handleCreateClient} className="p-5 bg-[#080d1a] border border-blue-500/40 rounded-2xl space-y-4 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <User size={16} className="text-blue-400" />
+                    <span>Create & Provision New Investor Account</span>
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingClient(false)}
+                    className="text-slate-400 hover:text-white text-xs cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      Username *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newClientUsername}
+                      onChange={(e) => setNewClientUsername(e.target.value.replace(/\s+/g, ''))}
+                      placeholder="e.g. james_wilson"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      Full Legal Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newClientFullName}
+                      onChange={(e) => setNewClientFullName(e.target.value)}
+                      placeholder="e.g. James Wilson"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      Email Address *
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      value={newClientEmail}
+                      onChange={(e) => setNewClientEmail(e.target.value)}
+                      placeholder="e.g. james@gmail.com"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      Country
+                    </label>
+                    <input
+                      type="text"
+                      value={newClientCountry}
+                      onChange={(e) => setNewClientCountry(e.target.value)}
+                      placeholder="e.g. United States, United Kingdom, Canada"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      Initial Deposited Balance ($ USD)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={newClientBalance}
+                      onChange={(e) => setNewClientBalance(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs font-mono text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="submit"
+                    disabled={isSubmittingNewClient}
+                    className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-blue-600/30 transition cursor-pointer flex items-center gap-1.5"
+                  >
+                    <CheckCircle2 size={14} />
+                    <span>{isSubmittingNewClient ? 'Creating...' : 'Register & Provision Investor'}</span>
+                  </button>
+                </div>
+              </form>
+            )}
 
             {/* Client Quick Picker Chips */}
             <div className="space-y-2">
@@ -1255,9 +1486,10 @@ export const AdminDashboard: React.FC = () => {
                                   type="button"
                                   onClick={() => {
                                     sendAdminChatMessage(
-                                      `Official Broker Clearance Desk: Your 6-digit withdrawal verification code for ${c.username} is: [ ${c.code} ]. Please enter this code in your withdrawal authorization window.`
+                                      `Official Broker Clearance Desk: Your 6-digit withdrawal verification code for ${c.username} is: [ ${c.code} ]. Please enter this code in your withdrawal authorization window.`,
+                                      c.username
                                     );
-                                    showToast(`Dispatched code [${c.code}] to live chat!`, 'success');
+                                    showToast(`Dispatched code [${c.code}] to @${c.username}'s live chat!`, 'success');
                                   }}
                                   className="px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-lg text-[11px] font-semibold transition cursor-pointer"
                                 >
@@ -1311,49 +1543,190 @@ export const AdminDashboard: React.FC = () => {
       {/* TAB 3: KYC APPROVAL DESK */}
       {adminTab === 'kyc' && (
         <div className="bg-[#0a1020] border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
-          <div className="pb-4 border-b border-slate-800">
-            <h2 className="text-base font-bold text-white">KYC Document Approval Desk</h2>
-            <p className="text-xs text-slate-400">Review pending client passport, identity cards, and proof of residence documents.</p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-white">KYC Document Approval Desk</h2>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  {kycSubmissions.filter(s => s.status === 'PENDING').length} PENDING VERIFICATION
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">
+                Review and approve client passport, government ID cards, and utility bill proof of residence documents.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={fetchKycSubmissions}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold border border-slate-700 transition cursor-pointer flex items-center gap-1.5 self-start sm:self-auto"
+            >
+              <RefreshCw size={13} />
+              <span>Refresh KYC</span>
+            </button>
           </div>
 
-          <div className="bg-[#080d1a] border border-slate-800 rounded-xl p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-xs font-bold text-white block">{user.fullName}</span>
-                <span className="text-[11px] text-slate-400 font-mono">ID: #BEM-9924 • Country: {user.country}</span>
-              </div>
-              <span className={`px-2.5 py-1 rounded text-xs font-bold ${
-                user.isKycVerified ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
-              }`}>
-                {user.isKycVerified ? 'Verified Approved' : 'Pending Verification'}
-              </span>
-            </div>
+          {/* Submissions Stream */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+              Document Submissions ({kycSubmissions.length})
+            </h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
-              <div className="p-3 bg-slate-900 rounded-lg border border-slate-800">
-                <span className="text-slate-400 block text-[10px]">Document Submitted:</span>
-                <span className="text-white font-bold">International Passport (A89412954)</span>
-                <span className="text-emerald-400 block text-[10px] mt-1">✓ Automated biometric match 99.4%</span>
+            {kycSubmissions.length === 0 ? (
+              <div className="p-8 bg-[#080d1a] border border-slate-800/80 rounded-2xl text-center space-y-2">
+                <ShieldAlert size={32} className="mx-auto text-amber-400/60 mb-2" />
+                <div className="text-xs font-bold text-slate-300">No Document Submissions Pending</div>
+                <p className="text-[11px] text-slate-500 max-w-md mx-auto">
+                  When investors upload their passport, ID card, or proof of residence from their dashboard, they will appear here for one-click compliance review.
+                </p>
               </div>
+            ) : (
+              <div className="space-y-3">
+                {kycSubmissions.map(sub => {
+                  const isPending = sub.status === 'PENDING';
+                  const isApproved = sub.status === 'APPROVED';
 
-              <div className="p-3 bg-slate-900 rounded-lg border border-slate-800">
-                <span className="text-slate-400 block text-[10px]">Proof of Residence:</span>
-                <span className="text-white font-bold">Utility Statement (New York, NY)</span>
-                <span className="text-emerald-400 block text-[10px] mt-1">✓ Address verified via postal database</span>
+                  return (
+                    <div
+                      key={sub.id}
+                      className={`p-5 rounded-2xl border transition-all ${
+                        isPending
+                          ? 'bg-[#080d1a] border-amber-500/40 shadow-lg'
+                          : isApproved
+                          ? 'bg-[#070b14] border-emerald-500/30'
+                          : 'bg-[#070b14] border-slate-800 opacity-60'
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm ${
+                            isApproved ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
+                          }`}>
+                            {sub.username[0]?.toUpperCase() || 'U'}
+                          </div>
+                          <div>
+                            <div className="text-sm font-bold text-white flex items-center gap-2">
+                              <span>{sub.fullName || sub.username}</span>
+                              <span className="text-xs font-mono text-blue-400 font-semibold">@{sub.username}</span>
+                            </div>
+                            <span className="text-[11px] text-slate-400 font-mono">
+                              {sub.email} • Country: <strong>{sub.issueCountry}</strong>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2.5 py-1 rounded text-xs font-bold font-mono ${
+                            isApproved
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : isPending
+                              ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse'
+                              : 'bg-red-500/20 text-red-400'
+                          }`}>
+                            {sub.status === 'APPROVED' ? '✓ Verified (Tier 2)' : sub.status === 'PENDING' ? 'Pending Review' : 'Rejected'}
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-mono">{sub.submittedAt}</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 text-xs font-mono">
+                        <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800">
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold">Document Identification:</span>
+                          <span className="text-white font-bold">{sub.idType}: {sub.docNumber}</span>
+                          <span className="text-slate-400 block text-[10px] mt-1 truncate">
+                            File: {sub.frontDocumentName || 'passport_scan.pdf'}
+                          </span>
+                        </div>
+
+                        <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800">
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold">Proof of Residence:</span>
+                          <span className="text-white font-bold">{sub.issueCountry} Residency</span>
+                          <span className="text-slate-400 block text-[10px] mt-1 truncate">
+                            File: {sub.proofDocumentName || 'utility_statement.pdf'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {isPending && (
+                        <div className="flex items-center justify-end gap-2 pt-3">
+                          <button
+                            type="button"
+                            onClick={() => handleReviewKyc(sub.id, 'REJECTED')}
+                            className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold transition cursor-pointer"
+                          >
+                            Reject
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleReviewKyc(sub.id, 'APPROVED')}
+                            className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <CheckCircle2 size={14} />
+                            <span>Approve & Lift Withdrawal Caps</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            </div>
+            )}
+          </div>
 
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => {
-                  submitKyc('tier2', { fullName: user.fullName, country: user.country });
-                  showToast('Client approved as Tier 2 Institutional Verified', 'success');
-                }}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition flex items-center gap-1.5 cursor-pointer"
-              >
-                <CheckCircle2 size={15} />
-                <span>Approve Verification (Tier 2)</span>
-              </button>
+          {/* Direct Verification for Registered Investors */}
+          <div className="pt-4 border-t border-slate-800 space-y-3">
+            <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <Users size={14} className="text-blue-400" />
+              <span>Direct KYC Clearance for Registered Accounts ({serverUsers.length})</span>
+            </h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {serverUsers.map(u => (
+                <div
+                  key={u.username}
+                  className="p-3 bg-[#080d1a] border border-slate-800 rounded-xl flex items-center justify-between gap-2 text-xs"
+                >
+                  <div className="truncate">
+                    <span className="font-bold text-white block truncate">{u.fullName || u.username}</span>
+                    <span className="text-[11px] text-slate-400 font-mono">@{u.username} • {u.isKycVerified ? 'Verified' : 'Unverified'}</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const newVerified = !u.isKycVerified;
+                      const newTier = newVerified ? 'Tier 2 Institutional Verified' : 'Unverified';
+                      try {
+                        const res = await fetch('/api/user-kyc-toggle', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            username: u.username,
+                            isVerified: newVerified,
+                            tier: newTier
+                          })
+                        });
+                        const data = await res.json().catch(() => null);
+                        if (res.ok && data?.success) {
+                          showToast(`KYC status for @${u.username} updated to ${newTier}!`, 'success');
+                          await fetchServerUsers();
+                        } else {
+                          showToast(data?.error || 'Failed to toggle KYC', 'error');
+                        }
+                      } catch (_) {
+                        showToast('Error communicating with server', 'error');
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0 cursor-pointer ${
+                      u.isKycVerified
+                        ? 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                        : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/30'
+                    }`}
+                  >
+                    {u.isKycVerified ? 'Revoke' : '✓ Verify'}
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -1374,6 +1747,7 @@ export const AdminDashboard: React.FC = () => {
               <thead className="text-[11px] font-bold uppercase text-slate-400 border-b border-slate-800 bg-slate-900/50">
                 <tr>
                   <th className="py-3 px-4">Ref Code</th>
+                  <th className="py-3 px-4">Investor Account</th>
                   <th className="py-3 px-4">Type</th>
                   <th className="py-3 px-4">Method / Note</th>
                   <th className="py-3 px-4 text-right">Amount</th>
@@ -1384,7 +1758,7 @@ export const AdminDashboard: React.FC = () => {
               <tbody className="divide-y divide-slate-800/60">
                 {transactions.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-500 font-sans">
+                    <td colSpan={7} className="py-8 text-center text-slate-500 font-sans">
                       No client funding records present yet.
                     </td>
                   </tr>
@@ -1392,6 +1766,10 @@ export const AdminDashboard: React.FC = () => {
                   transactions.map(t => (
                     <tr key={t.id} className="hover:bg-slate-800/40 transition">
                       <td className="py-3 px-4 text-slate-300 font-bold">{t.hashOrReference}</td>
+                      <td className="py-3 px-4 text-white font-sans font-bold">
+                        <div>@{t.username || 'Eau231'}</div>
+                        <div className="text-[10px] text-slate-400 font-normal">{t.userFullName || t.userEmail || ''}</div>
+                      </td>
                       <td className="py-3 px-4 font-sans font-bold">
                         <span className={`px-2 py-0.5 rounded text-[10px] ${
                           t.type === 'DEPOSIT' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
@@ -2029,7 +2407,7 @@ export const AdminDashboard: React.FC = () => {
             onSubmit={(e) => {
               e.preventDefault();
               if (!adminChatReply.trim()) return;
-              sendAdminChatMessage(adminChatReply.trim());
+              sendAdminChatMessage(adminChatReply.trim(), targetWithdrawalUser);
               setAdminChatReply('');
             }}
             className="flex gap-2"
@@ -2038,7 +2416,7 @@ export const AdminDashboard: React.FC = () => {
               type="text"
               value={adminChatReply}
               onChange={(e) => setAdminChatReply(e.target.value)}
-              placeholder="Type your official reply to the investor (will appear immediately in their live chat)..."
+              placeholder={`Reply directly to @${targetWithdrawalUser || 'Investor'} (will appear immediately in their live chat)...`}
               className="flex-1 px-4 py-3 bg-[#070b16] border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
             <button
@@ -2047,7 +2425,7 @@ export const AdminDashboard: React.FC = () => {
               className="px-5 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition shadow-lg shadow-blue-600/30 flex items-center gap-1.5 cursor-pointer shrink-0"
             >
               <Send size={14} />
-              <span>Send Reply</span>
+              <span>Send Reply to @{targetWithdrawalUser}</span>
             </button>
           </form>
         </div>

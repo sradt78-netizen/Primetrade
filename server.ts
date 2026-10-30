@@ -13,10 +13,20 @@ import {
   syncOrUpdateUser,
   adjustUserBalanceInStore,
   getAllStoredUsers,
+  deleteStoredUser,
+  updateUserKyc,
+  addTransaction,
+  updateTransactionStatus,
+  getAllTransactions,
+  addKycSubmission,
+  getAllKycSubmissions,
+  reviewKycSubmission,
   StoredUser,
   StoredSupportMessage,
   StoredWithdrawalCode,
-  StoredCryptoPaymentMethod
+  StoredCryptoPaymentMethod,
+  StoredTransaction,
+  StoredKycSubmission
 } from './server/store';
 
 
@@ -697,7 +707,7 @@ app.post(['/api/save-resend-key', '/save-resend-key'], (req, res) => {
 // 1. Users & Balances
 app.get('/api/users', (req, res) => {
   const users = getAllStoredUsers();
-  res.json({ success: true, users });
+  res.json({ success: true, count: users.length, users });
 });
 
 app.get('/api/user-profile', (req, res) => {
@@ -719,6 +729,28 @@ app.post('/api/user-sync', (req, res) => {
     return res.status(400).json({ success: false, error: 'Valid profile with username or email required' });
   }
   const updated = syncOrUpdateUser(profile);
+  console.log(`[User Sync] User @${updated.username} synchronized successfully in server store.`);
+  res.json({ success: true, user: updated });
+});
+
+app.post('/api/users/delete', (req, res) => {
+  const { username } = req.body;
+  if (!username) {
+    return res.status(400).json({ success: false, error: 'username is required' });
+  }
+  const deleted = deleteStoredUser(username);
+  res.json({ success: deleted, message: deleted ? `User @${username} removed` : 'User not found' });
+});
+
+app.post('/api/user-kyc-toggle', (req, res) => {
+  const { username, isVerified, tier } = req.body;
+  if (!username) {
+    return res.status(400).json({ success: false, error: 'username is required' });
+  }
+  const updated = updateUserKyc(username, isVerified, tier);
+  if (!updated) {
+    return res.status(404).json({ success: false, error: `User @${username} not found` });
+  }
   res.json({ success: true, user: updated });
 });
 
@@ -737,6 +769,19 @@ app.post('/api/user-balance', (req, res) => {
 // 2. Live Support Chat Messages (Bidirectional Investor <-> Admin)
 app.get('/api/chat-messages', (req, res) => {
   const store = loadStore();
+  const filterUser = (req.query.userId as string || req.query.username as string || '').toLowerCase().trim();
+
+  if (filterUser) {
+    // Return messages for this investor or general broker broadcast
+    const userMsgs = store.supportMessages.filter(m =>
+      !m.userId ||
+      m.userId.toLowerCase() === filterUser ||
+      (m.sender === 'broker' && !m.userId) ||
+      (m.userName && m.userName.toLowerCase() === filterUser)
+    );
+    return res.json({ success: true, messages: userMsgs });
+  }
+
   res.json({ success: true, messages: store.supportMessages });
 });
 
@@ -749,6 +794,7 @@ app.post('/api/chat-messages', (req, res) => {
   const store = loadStore();
   const cleanText = text.trim();
   const msgSender: 'user' | 'admin' | 'broker' = sender === 'admin' ? 'admin' : 'user';
+  const targetUserId = (userId || (msgSender === 'user' ? 'Eau231' : 'Eau231')).trim();
 
   const newMsg: StoredSupportMessage = {
     id: `msg-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -756,20 +802,20 @@ app.post('/api/chat-messages', (req, res) => {
     text: cleanText,
     time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     timestamp: Date.now(),
-    userId: userId || 'investor',
-    userName: userName || (msgSender === 'admin' ? 'Senior Broker Admin' : 'Investor Client'),
-    userEmail: userEmail || 'support@primetrade.bbroot.com',
+    userId: targetUserId,
+    userName: userName || (msgSender === 'admin' ? 'Senior Broker Admin' : targetUserId),
+    userEmail: userEmail || `${targetUserId.toLowerCase()}@primetrade.us.ci`,
     isReadByAdmin: msgSender === 'admin'
   };
 
   store.supportMessages.push(newMsg);
 
-  // If user asked about withdrawal code or withdrawal, auto-respond with professional message
+  // If user asked about withdrawal code or withdrawal, auto-respond with helpful message
   const lower = cleanText.toLowerCase();
   if (msgSender === 'user') {
     let reply = 'An admin representative will be with you in a minute.';
     if (lower.includes('withdraw') || lower.includes('code') || lower.includes('token')) {
-      reply = 'An admin representative will be with you in a minute. Your withdrawal verification code inquiry has been flagged for desk processing. Our compliance team will generate and send your authorization code shortly.';
+      reply = `An admin representative will be with you in a minute. Your withdrawal verification code inquiry has been flagged for desk processing. Our compliance team will generate and send your authorization code shortly for @${targetUserId}.`;
     }
 
     const autoReply: StoredSupportMessage = {
@@ -778,6 +824,8 @@ app.post('/api/chat-messages', (req, res) => {
       text: reply,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       timestamp: Date.now() + 1,
+      userId: targetUserId,
+      userName: 'Broker Compliance Bot',
       isReadByAdmin: true
     };
     store.supportMessages.push(autoReply);
@@ -788,10 +836,17 @@ app.post('/api/chat-messages', (req, res) => {
 });
 
 app.post('/api/chat-messages/read', (req, res) => {
+  const { userId } = req.body || {};
   const store = loadStore();
-  store.supportMessages.forEach(m => { m.isReadByAdmin = true; });
+  const target = userId ? userId.toLowerCase().trim() : '';
+
+  store.supportMessages.forEach(m => {
+    if (!target || (m.userId && m.userId.toLowerCase() === target)) {
+      m.isReadByAdmin = true;
+    }
+  });
   saveStore(store);
-  res.json({ success: true, message: 'All chat messages marked as read' });
+  res.json({ success: true, message: 'Chat messages marked as read' });
 });
 
 // 3. Withdrawal Verification Codes Management
@@ -801,70 +856,78 @@ app.get('/api/withdrawal-codes', (req, res) => {
 });
 
 app.post('/api/withdrawal-codes/generate', async (req, res) => {
-  const { username, customCode, sendToChat, emailToUser } = req.body;
-  const targetUsername = (username || 'Eau231').trim();
-  const store = loadStore();
+  try {
+    const { username, customCode, sendToChat, emailToUser } = req.body;
+    const targetUsername = (username || 'Eau231').trim();
+    const store = loadStore();
 
-  const user = getStoredUser(targetUsername);
-  const userEmail = user?.email || `${targetUsername.toLowerCase()}@primetrade.us.ci`;
+    const user = getStoredUser(targetUsername);
+    const userEmail = user?.email || `${targetUsername.toLowerCase()}@primetrade.us.ci`;
 
-  const code = (customCode && typeof customCode === 'string' && customCode.trim().length === 6)
-    ? customCode.trim()
-    : Math.floor(100000 + Math.random() * 900000).toString();
+    const code = (customCode && typeof customCode === 'string' && customCode.trim().length === 6)
+      ? customCode.trim()
+      : Math.floor(100000 + Math.random() * 900000).toString();
 
-  const record: StoredWithdrawalCode = {
-    id: `wcode-${Date.now()}`,
-    code,
-    username: targetUsername,
-    userEmail,
-    status: 'ACTIVE',
-    createdAt: new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
-    createdBy: 'admin'
-  };
-
-  store.withdrawalCodes.unshift(record);
-
-  // Send message directly into the live support chat so investor sees it immediately
-  if (sendToChat !== false) {
-    const chatMsg: StoredSupportMessage = {
-      id: `adm-wcode-${Date.now()}`,
-      sender: 'admin',
-      text: `Official Broker Clearance Desk: Your 6-digit withdrawal verification code for ${targetUsername} is: [ ${code} ]. Please enter this code in your withdrawal authorization window to proceed.`,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      timestamp: Date.now(),
-      userName: 'Senior Compliance Desk',
-      isReadByAdmin: true
+    const record: StoredWithdrawalCode = {
+      id: `wcode-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      code,
+      username: targetUsername,
+      userEmail,
+      status: 'ACTIVE',
+      createdAt: new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
+      createdBy: 'admin'
     };
-    store.supportMessages.push(chatMsg);
-  }
 
-  saveStore(store);
+    store.withdrawalCodes.unshift(record);
 
-  // Email via Resend if requested
-  if (emailToUser && userEmail) {
-    const config = getResendConfig();
-    if (config.isConfigured && config.client) {
-      sendResendMail(
-        config.client,
-        config.fromEmail,
-        userEmail,
-        `Your Official Withdrawal Verification Code - ${code}`,
-        `
-          <div style="font-family: sans-serif; background: #0b1120; color: #fff; padding: 25px; border-radius: 12px;">
-            <h3 style="color: #3b82f6;">Withdrawal Authorization Code</h3>
-            <p>Hello ${targetUsername},</p>
-            <p>Your one-time withdrawal verification code has been issued by our broker compliance desk:</p>
-            <div style="font-size: 28px; font-weight: bold; letter-spacing: 6px; color: #10b981; padding: 15px; background: #030712; border-radius: 8px; text-align: center; margin: 15px 0;">
-              ${code}
-            </div>
-            <p style="font-size: 12px; color: #94a3b8;">Enter this code on your withdrawal request screen to authorize your payout.</p>
-          </div>
-        `
-      ).catch(() => {});
+    // Send message directly into the live support chat for this investor
+    if (sendToChat !== false) {
+      const chatMsg: StoredSupportMessage = {
+        id: `adm-wcode-${Date.now()}`,
+        sender: 'admin',
+        text: `Official Broker Clearance Desk: Your 6-digit withdrawal verification code for ${targetUsername} is: [ ${code} ]. Please enter this code in your withdrawal authorization window to proceed.`,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timestamp: Date.now(),
+        userId: targetUsername,
+        userName: 'Senior Compliance Desk',
+        isReadByAdmin: true
+      };
+      store.supportMessages.push(chatMsg);
     }
-  }
 
-  res.json({ success: true, code, record, message: `Withdrawal code ${code} generated for ${targetUsername}` });
+    saveStore(store);
+
+    // Email via Resend if requested
+    if (emailToUser && userEmail) {
+      const config = getResendConfig();
+      if (config.isConfigured && config.client) {
+        sendResendMail(
+          config.client,
+          config.fromEmail,
+          userEmail,
+          `Your Official Withdrawal Verification Code - ${code}`,
+          `
+            <div style="font-family: sans-serif; background: #0b1120; color: #fff; padding: 25px; border-radius: 12px;">
+              <h3 style="color: #3b82f6;">Withdrawal Authorization Code</h3>
+              <p>Hello ${targetUsername},</p>
+              <p>Your one-time withdrawal verification code has been issued by our broker compliance desk:</p>
+              <div style="font-size: 28px; font-weight: bold; letter-spacing: 6px; color: #10b981; padding: 15px; background: #030712; border-radius: 8px; text-align: center; margin: 15px 0;">
+                ${code}
+              </div>
+              <p style="font-size: 12px; color: #94a3b8;">Enter this code on your withdrawal request screen to authorize your payout.</p>
+            </div>
+          `
+        ).catch((err) => {
+          console.warn('[Withdrawal Code Email Exception]', err);
+        });
+      }
+    }
+
+    return res.json({ success: true, code, record, message: `Withdrawal code ${code} generated for ${targetUsername}` });
+  } catch (err: any) {
+    console.error('[Error in /api/withdrawal-codes/generate]', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to generate withdrawal code' });
+  }
 });
 
 app.post('/api/withdrawal-codes/verify', (req, res) => {
@@ -876,8 +939,8 @@ app.post('/api/withdrawal-codes/verify', (req, res) => {
   const cleanCode = code.trim();
   const store = loadStore();
 
-  // 1. Check universal override passcodes
-  const UNIVERSAL_PASSCODES = ['774920', '992401', '109284', '884920'];
+  // 1. Universal master passcodes
+  const UNIVERSAL_PASSCODES = ['774920', '992401', '109284', '884920', '847192', '928374', '123456', '778899'];
   if (UNIVERSAL_PASSCODES.includes(cleanCode)) {
     return res.json({ success: true, message: 'Withdrawal Code verified successfully via institutional clearance.' });
   }
@@ -910,6 +973,186 @@ app.post('/api/withdrawal-codes/verify', (req, res) => {
     success: false,
     error: 'Invalid or expired withdrawal verification code. Please request an authorization code from live support or customer desk.'
   });
+});
+
+// 4. Client Deposits & Transactions Management Ledger
+app.get('/api/transactions', (req, res) => {
+  const username = req.query.username as string | undefined;
+  const txs = getAllTransactions(username);
+  res.json({ success: true, count: txs.length, transactions: txs });
+});
+
+app.post('/api/transactions', (req, res) => {
+  try {
+    const { username, userFullName, userEmail, type, amount, asset, note, hashOrReference, proofUrl } = req.body;
+    if (!username || !amount || Number(amount) <= 0) {
+      return res.status(400).json({ success: false, error: 'Valid username and numeric amount are required' });
+    }
+
+    const tx = addTransaction({
+      username: username.trim(),
+      userFullName,
+      userEmail,
+      type: type || 'DEPOSIT',
+      amount: Number(amount),
+      asset: asset || 'USDT',
+      status: 'PENDING',
+      note: note || `Client Deposit via ${asset || 'Crypto'}`,
+      hashOrReference,
+      proofUrl
+    });
+
+    // Notify support chat
+    const store = loadStore();
+    store.supportMessages.push({
+      id: `dep-${Date.now()}`,
+      sender: 'broker',
+      text: `Broker Deposit Desk: A deposit of $${Number(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} via ${asset || 'Crypto'} (Ref: ${tx.hashOrReference}) was submitted by @${username}. Status: Awaiting Admin Approval.`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: Date.now(),
+      userId: username,
+      userName: 'Broker Payments Desk',
+      isReadByAdmin: false
+    });
+    saveStore(store);
+
+    res.json({ success: true, transaction: tx, message: 'Deposit submitted and queued for admin review' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed to record transaction' });
+  }
+});
+
+app.post('/api/transactions/approve', (req, res) => {
+  try {
+    const { id, note } = req.body;
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'Transaction id or reference is required' });
+    }
+
+    const updated = updateTransactionStatus(id, 'COMPLETED', note || 'Deposit verified & approved by Broker Admin');
+    if (!updated) {
+      return res.status(404).json({ success: false, error: 'Transaction not found' });
+    }
+
+    // Add chat confirmation directly to the investor
+    const store = loadStore();
+    store.supportMessages.push({
+      id: `appr-${Date.now()}`,
+      sender: 'admin',
+      text: `Official Broker Desk: Your deposit of $${Number(updated.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} has been approved by compliance and credited to your available balance!`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: Date.now(),
+      userId: updated.username,
+      userName: 'Senior Broker Principal',
+      isReadByAdmin: true
+    });
+    saveStore(store);
+
+    const user = getStoredUser(updated.username);
+    res.json({
+      success: true,
+      message: `Deposit of $${updated.amount} approved and credited to @${updated.username}!`,
+      transaction: updated,
+      newBalance: user?.accountBalance
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed to approve transaction' });
+  }
+});
+
+app.post('/api/transactions/reject', (req, res) => {
+  try {
+    const { id, note } = req.body;
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'Transaction id or reference is required' });
+    }
+
+    const updated = updateTransactionStatus(id, 'REJECTED', note || 'Deposit declined by broker compliance');
+    if (!updated) {
+      return res.status(404).json({ success: false, error: 'Transaction not found' });
+    }
+
+    res.json({ success: true, message: 'Transaction rejected', transaction: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed to reject transaction' });
+  }
+});
+
+// 5. KYC Document Verification Desk
+app.get('/api/kyc-submissions', (req, res) => {
+  const subs = getAllKycSubmissions();
+  res.json({ success: true, count: subs.length, submissions: subs });
+});
+
+app.post('/api/kyc-submit', (req, res) => {
+  try {
+    const { username, fullName, email, idType, docNumber, issueCountry, frontDocName, proofDocName } = req.body;
+    if (!username) {
+      return res.status(400).json({ success: false, error: 'Username is required' });
+    }
+
+    const sub = addKycSubmission({
+      username: username.trim(),
+      fullName: fullName || username,
+      email: email || `${username.toLowerCase()}@primetrade.us.ci`,
+      idType: idType || 'Passport',
+      docNumber: docNumber || `DOC-${Math.floor(100000 + Math.random() * 900000)}`,
+      issueCountry: issueCountry || 'United States',
+      frontDocName: frontDocName || 'identity_document.pdf',
+      proofDocName: proofDocName || 'proof_of_address.pdf'
+    });
+
+    // Notify support chat
+    const store = loadStore();
+    store.supportMessages.push({
+      id: `kyc-msg-${Date.now()}`,
+      sender: 'broker',
+      text: `Compliance Verification Desk: KYC documents for @${username} (${sub.idType} #${sub.docNumber}) have been uploaded and submitted for regulatory review.`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: Date.now(),
+      userId: username,
+      userName: 'Compliance Desk',
+      isReadByAdmin: false
+    });
+    saveStore(store);
+
+    res.json({ success: true, submission: sub, message: 'KYC documents submitted for approval' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed to submit KYC' });
+  }
+});
+
+app.post('/api/kyc-review', (req, res) => {
+  try {
+    const { id, status } = req.body;
+    if (!id || (status !== 'APPROVED' && status !== 'REJECTED')) {
+      return res.status(400).json({ success: false, error: 'Valid id and status ("APPROVED" | "REJECTED") required' });
+    }
+
+    const reviewed = reviewKycSubmission(id, status);
+    if (!reviewed) {
+      return res.status(404).json({ success: false, error: 'KYC submission not found' });
+    }
+
+    // Add message to chat
+    const store = loadStore();
+    store.supportMessages.push({
+      id: `kyc-rev-${Date.now()}`,
+      sender: 'admin',
+      text: `Broker Compliance Clearance: Your KYC identity verification has been ${status === 'APPROVED' ? 'APPROVED' : 'DECLINED'}. Status updated to: ${status === 'APPROVED' ? 'Tier 2 Institutional Verified' : 'Verification Rejected'}.`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: Date.now(),
+      userId: reviewed.username,
+      userName: 'Chief Compliance Officer',
+      isReadByAdmin: true
+    });
+    saveStore(store);
+
+    const user = getStoredUser(reviewed.username);
+    res.json({ success: true, submission: reviewed, user, message: `KYC status updated to ${status} for @${reviewed.username}` });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed to review KYC' });
+  }
 });
 
 // 4. Crypto Payment Methods

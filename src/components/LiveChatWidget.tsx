@@ -34,6 +34,12 @@ export const LiveChatWidget: React.FC = () => {
     setInput('');
   };
 
+  const currentUsername = (user?.username || 'Eau231').toLowerCase();
+  const relevantMessages = supportMessages.filter(m => {
+    if (!m.userId) return true;
+    return m.userId.toLowerCase() === currentUsername;
+  });
+
   return (
     <div className="fixed bottom-20 md:bottom-6 right-4 z-50 w-96 max-w-[calc(100vw-2rem)] bg-[#090f1d] border border-blue-500/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200">
       {/* Header */}
@@ -65,7 +71,7 @@ export const LiveChatWidget: React.FC = () => {
 
       {/* Messages Scroll Area */}
       <div className="p-4 space-y-3 h-84 overflow-y-auto bg-[#080d1a] text-xs">
-        {supportMessages.map(m => {
+        {relevantMessages.map(m => {
           const isUser = m.sender === 'user';
           const isAdmin = m.sender === 'admin';
 

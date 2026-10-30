@@ -128,10 +128,14 @@ export interface Transaction {
   type: 'DEPOSIT' | 'WITHDRAWAL' | 'TRADE' | 'TRANSFER' | 'YIELD_PAYOUT' | 'REFERRAL_BONUS';
   amount: number;
   asset: string;
-  status: 'COMPLETED' | 'PENDING' | 'PROCESSING';
+  status: 'COMPLETED' | 'PENDING' | 'PROCESSING' | 'REJECTED';
   date: string;
   hashOrReference: string;
   note?: string;
+  username?: string;
+  userFullName?: string;
+  userEmail?: string;
+  proofUrl?: string;
 }
 
 export interface AppNotification {
@@ -152,7 +156,7 @@ export interface UserProfile {
   city: string;
   accountType: 'Live Trader' | 'Institutional Prime';
   isKycVerified: boolean;
-  kycTier: 'Unverified' | 'Tier 1 Basic' | 'Tier 2 Institutional Verified';
+  kycTier: 'Unverified' | 'Pending Verification' | 'Tier 1 Basic' | 'Tier 2 Institutional Verified';
   accountBalance: number;
   demoBalance: number;
   isDemoMode: boolean;

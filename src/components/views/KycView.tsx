@@ -51,6 +51,8 @@ export const KycView: React.FC = () => {
             <div className="text-xs text-slate-400">
               {user.isKycVerified
                 ? 'Your account has full institutional clearance and unlimited withdrawal capabilities.'
+                : user.kycTier === 'Pending Verification'
+                ? 'Your documents have been submitted to compliance and are under active review by the admin desk.'
                 : 'Complete document submission below to lift daily withdrawal caps.'}
             </div>
           </div>

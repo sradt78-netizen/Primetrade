@@ -11,6 +11,19 @@
       "kycTier": "Unverified",
       "avatarInitials": "E",
       "updatedAt": "2026-10-30T16:03:17.938Z"
+    },
+    "sarah_investor": {
+      "username": "sarah_investor",
+      "fullName": "Sarah Jenkins",
+      "email": "sarah.jenkins@example.com",
+      "phone": "",
+      "country": "Canada",
+      "accountBalance": 5000,
+      "demoBalance": 50000,
+      "isKycVerified": true,
+      "kycTier": "Tier 2 Institutional Verified",
+      "avatarInitials": "SJ",
+      "updatedAt": "2026-10-30T20:03:51.759Z"
     }
   },
   "supportMessages": [
@@ -30,9 +43,90 @@
       "timestamp": 1793376205860,
       "userName": "Senior Compliance Desk",
       "isReadByAdmin": true
+    },
+    {
+      "id": "adm-wcode-1793390598222",
+      "sender": "admin",
+      "text": "Official Broker Clearance Desk: Your 6-digit withdrawal verification code for sarah_investor is: [ 582095 ]. Please enter this code in your withdrawal authorization window to proceed.",
+      "time": "08:03 PM",
+      "timestamp": 1793390598223,
+      "userId": "sarah_investor",
+      "userName": "Senior Compliance Desk",
+      "isReadByAdmin": true
+    },
+    {
+      "id": "msg-1793390605266-509",
+      "sender": "user",
+      "text": "Hello, I just deposited $2,500 in USDT TRC20, could you please verify and approve?",
+      "time": "08:03 PM",
+      "timestamp": 1793390605266,
+      "userId": "sarah_investor",
+      "userName": "Sarah Jenkins",
+      "userEmail": "sarah.jenkins@example.com",
+      "isReadByAdmin": false
+    },
+    {
+      "id": "brk-1793390605267",
+      "sender": "broker",
+      "text": "An admin representative will be with you in a minute.",
+      "time": "08:03 PM",
+      "timestamp": 1793390605267,
+      "userId": "sarah_investor",
+      "userName": "Broker Compliance Bot",
+      "isReadByAdmin": true
+    },
+    {
+      "id": "dep-1793390609358",
+      "sender": "broker",
+      "text": "Broker Deposit Desk: A deposit of $2,500.00 via USDT (TRC-20) (Ref: BEM-TX-254060) was submitted by @sarah_investor. Status: Awaiting Admin Approval.",
+      "time": "08:03 PM",
+      "timestamp": 1793390609363,
+      "userId": "sarah_investor",
+      "userName": "Broker Payments Desk",
+      "isReadByAdmin": false
+    },
+    {
+      "id": "appr-1793390618470",
+      "sender": "admin",
+      "text": "Official Broker Desk: Your deposit of $2,500.00 has been approved by compliance and credited to your available balance!",
+      "time": "08:03 PM",
+      "timestamp": 1793390618470,
+      "userId": "sarah_investor",
+      "userName": "Senior Broker Principal",
+      "isReadByAdmin": true
+    },
+    {
+      "id": "kyc-msg-1793390625551",
+      "sender": "broker",
+      "text": "Compliance Verification Desk: KYC documents for @sarah_investor (Passport #CAN-9824102) have been uploaded and submitted for regulatory review.",
+      "time": "08:03 PM",
+      "timestamp": 1793390625551,
+      "userId": "sarah_investor",
+      "userName": "Compliance Desk",
+      "isReadByAdmin": false
+    },
+    {
+      "id": "kyc-rev-1793390631760",
+      "sender": "admin",
+      "text": "Broker Compliance Clearance: Your KYC identity verification has been APPROVED. Status updated to: Tier 2 Institutional Verified.",
+      "time": "08:03 PM",
+      "timestamp": 1793390631760,
+      "userId": "sarah_investor",
+      "userName": "Chief Compliance Officer",
+      "isReadByAdmin": true
     }
   ],
   "withdrawalCodes": [
+    {
+      "id": "wcode-1793390598157-188",
+      "code": "582095",
+      "username": "sarah_investor",
+      "userEmail": "sarah.jenkins@example.com",
+      "status": "USED",
+      "createdAt": "10/30/26, 8:03 PM",
+      "createdBy": "admin",
+      "usedAt": "10/30/26, 8:03 PM"
+    },
     {
       "id": "wcode-1793376205860",
       "code": "774920",
@@ -104,5 +198,35 @@
       "qrCodeUrl": "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=0x71C80e83011355E10640F548C218670c538749B8"
     }
   ],
-  "transactions": []
+  "transactions": [
+    {
+      "id": "tx-1793390609357-20",
+      "username": "sarah_investor",
+      "userFullName": "Sarah Jenkins",
+      "userEmail": "sarah.jenkins@example.com",
+      "type": "DEPOSIT",
+      "amount": 2500,
+      "asset": "USDT (TRC-20)",
+      "status": "COMPLETED",
+      "date": "10/30/26, 8:03 PM",
+      "hashOrReference": "BEM-TX-254060",
+      "note": "Deposit verified & approved by Broker Admin"
+    }
+  ],
+  "kycSubmissions": [
+    {
+      "id": "kyc-1793390625550-484",
+      "username": "sarah_investor",
+      "fullName": "Sarah Jenkins",
+      "email": "sarah.jenkins@example.com",
+      "idType": "Passport",
+      "docNumber": "CAN-9824102",
+      "issueCountry": "Canada",
+      "frontDocName": "identity_document.pdf",
+      "proofDocName": "proof_of_address.pdf",
+      "status": "APPROVED",
+      "submittedAt": "10/30/26, 8:03 PM",
+      "reviewedAt": "10/30/26, 8:03 PM"
+    }
+  ]
 }

@@ -254,7 +254,7 @@ interface AppContextType {
   supportMessages: SupportChatMessage[];
   unreadAdminChatCount: number;
   sendInvestorChatMessage: (text: string) => void;
-  sendAdminChatMessage: (text: string) => void;
+  sendAdminChatMessage: (text: string, targetUserId?: string) => void;
   markSupportMessagesAsRead: () => void;
   adjustRemoteUserBalance: (username: string, delta: number, note?: string) => Promise<boolean>;
   syncUserWithServer: (username?: string) => Promise<void>;
@@ -401,6 +401,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const saved = localStorage.getItem('bem_transactions_v2');
     return saved ? JSON.parse(saved) : [];
   });
+
+  const fetchTransactions = async () => {
+    try {
+      const res = await fetch('/api/transactions');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.success && Array.isArray(data.transactions)) {
+          setTransactions(data.transactions);
+          try {
+            localStorage.setItem('bem_transactions_v2', JSON.stringify(data.transactions));
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  };
+
+  useEffect(() => {
+    fetchTransactions();
+    const interval = setInterval(fetchTransactions, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
     try {
@@ -696,9 +717,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const sendAdminChatMessage = async (text: string) => {
+  const sendAdminChatMessage = async (text: string, targetUserId?: string) => {
     if (!text.trim()) return;
     const clean = text.trim();
+    const effectiveTarget = (targetUserId || 'Eau231').trim();
 
     const optimisticMsg: SupportChatMessage = {
       id: `adm-${Date.now()}`,
@@ -706,6 +728,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       text: clean,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       timestamp: Date.now(),
+      userId: effectiveTarget,
       userName: 'Senior Broker Admin',
       isReadByAdmin: true
     };
@@ -719,6 +742,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         body: JSON.stringify({
           sender: 'admin',
           text: clean,
+          userId: effectiveTarget,
           userName: 'Senior Broker Admin'
         })
       });
@@ -995,6 +1019,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.removeItem('bem_logged_in_v3');
     const uName = emailOrUser.includes('@') ? emailOrUser.split('@')[0] : emailOrUser;
     const formattedName = uName.replace(/[._-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+    // Fetch or sync user with server store
+    fetch(`/api/user-profile?username=${encodeURIComponent(uName)}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.success && data.user) {
+          const sUser = data.user;
+          setUser(prev => {
+            const updated: UserProfile = {
+              ...prev,
+              username: sUser.username || uName,
+              fullName: sUser.fullName || formattedName,
+              email: sUser.email || (emailOrUser.includes('@') ? emailOrUser : `${uName}@blueedgemarket.com`),
+              country: sUser.country || prev.country || 'United States',
+              accountBalance: typeof sUser.accountBalance === 'number' ? sUser.accountBalance : prev.accountBalance,
+              isKycVerified: typeof sUser.isKycVerified === 'boolean' ? sUser.isKycVerified : prev.isKycVerified,
+              kycTier: sUser.kycTier || prev.kycTier || 'Unverified',
+              avatarInitials: (sUser.fullName || sUser.username || formattedName)[0]?.toUpperCase() || 'U'
+            };
+            localStorage.setItem('bem_user_v3', JSON.stringify(updated));
+            return updated;
+          });
+        }
+      })
+      .catch(() => {});
+
     setUser(prev => {
       const updated: UserProfile = {
         ...prev,
@@ -1036,6 +1086,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setUser(newUser);
     localStorage.setItem('bem_user_v3', JSON.stringify(newUser));
     setIsRegisterOpen(false);
+
+    // Sync newly registered user directly into server store so Admin sees them immediately!
+    fetch('/api/user-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: newUser.username,
+        fullName: newUser.fullName,
+        email: newUser.email,
+        phone: newUser.phone,
+        country: newUser.country,
+        city: (newUser as any).city || '',
+        accountBalance: 0,
+        demoBalance: 50000,
+        isKycVerified: false,
+        kycTier: 'Unverified',
+        avatarInitials: initialChar
+      })
+    })
+      .then(res => res.json())
+      .then(d => {
+        if (d && d.success) {
+          syncUserWithServer(newUser.username);
+        }
+      })
+      .catch(err => console.warn('Failed to sync new user to server store:', err));
+
     try {
       confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } });
     } catch (_) {}
@@ -1185,6 +1262,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (depositAmt < 0) return false;
 
     const ref = `BEM-DEP-${Math.floor(100000 + Math.random() * 900000)}`;
+    const effectiveUsername = user.username || 'Eau231';
+    const effectiveFullName = user.fullName || user.username || 'Investor';
+    const effectiveEmail = user.email || `${effectiveUsername.toLowerCase()}@primetrade.us.ci`;
 
     if (autoApprove) {
       // Direct Admin Credit (immediate balance update)
@@ -1219,6 +1299,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return updated;
       });
 
+      fetch('/api/transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: effectiveUsername,
+          userFullName: effectiveFullName,
+          userEmail: effectiveEmail,
+          type: 'DEPOSIT',
+          amount: depositAmt,
+          asset: method,
+          status: 'COMPLETED',
+          hashOrReference: ref,
+          note: details || `Deposit via ${method} (Admin Credit)`
+        })
+      }).then(() => fetchTransactions()).catch(() => {});
+
       try {
         confetti({ particleCount: 80, spread: 75, origin: { y: 0.6 } });
       } catch (_) {}
@@ -1247,14 +1343,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return updated;
     });
 
+    // Send to server store so Admin dashboard receives it immediately
+    fetch('/api/transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: effectiveUsername,
+        userFullName: effectiveFullName,
+        userEmail: effectiveEmail,
+        type: 'DEPOSIT',
+        amount: depositAmt,
+        asset: method,
+        status: 'PENDING',
+        hashOrReference: ref,
+        note: details || `Deposit via ${method} (Awaiting Admin Approval)`
+      })
+    })
+      .then(res => res.json())
+      .then(d => {
+        if (d && d.success) {
+          fetchTransactions();
+        }
+      })
+      .catch(err => console.warn('Failed to record deposit on server:', err));
+
     showToast(`Payment registered! Reference ${ref}. Awaiting broker admin approval before crediting.`, 'info');
     addNotification('Deposit Submitted', `Your deposit of $${depositAmt.toLocaleString(undefined, { minimumFractionDigits: 2 })} via ${method} (Ref: ${ref}) has been submitted. Funds will be credited once verified and approved by the broker admin desk.`, 'wallet');
     return true;
   };
 
-  const approveDeposit = (txId: string) => {
-    let depositAmount = 0;
+  const approveDeposit = async (txId: string) => {
+    try {
+      const res = await fetch('/api/transactions/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: txId })
+      });
+      const data = await res.json().catch(() => null);
+      if (data && data.success) {
+        showToast(data.message || 'Deposit approved and credited!', 'success');
+        await fetchTransactions();
+        if (data.transaction?.username) {
+          await syncUserWithServer(data.transaction.username);
+        }
+        try {
+          confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
+        } catch (_) {}
+        return;
+      }
+    } catch (err) {
+      console.warn('API approveDeposit error:', err);
+    }
 
+    // Local fallback if offline
+    let depositAmount = 0;
     setTransactions(prev =>
       prev.map(tx => {
         if ((tx.id === txId || tx.hashOrReference === txId) && tx.status !== 'COMPLETED') {
@@ -1266,34 +1408,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     if (depositAmount > 0) {
-      setUser(prev => {
-        const updated = {
-          ...prev,
-          accountBalance: (Number(prev.accountBalance) || 0) + depositAmount
-        };
-        try {
-          localStorage.setItem('bem_user_v3', JSON.stringify(updated));
-          localStorage.setItem('bem_user_v2', JSON.stringify(updated));
-        } catch (_) {}
-        return updated;
-      });
-
-      try {
-        confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
-      } catch (_) {}
-
+      setUser(prev => ({
+        ...prev,
+        accountBalance: (Number(prev.accountBalance) || 0) + depositAmount
+      }));
       showToast(`Deposit approved! Credited $${depositAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} to client balance.`, 'success');
-      addNotification('Deposit Approved & Credited', `Your deposit of $${depositAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} has been approved by the broker compliance desk and credited to your available balance.`, 'wallet');
-    } else {
-      showToast('Deposit record cleared or already completed.', 'info');
     }
   };
 
-  const rejectDeposit = (txId: string) => {
+  const rejectDeposit = async (txId: string) => {
+    try {
+      const res = await fetch('/api/transactions/reject', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: txId })
+      });
+      const data = await res.json().catch(() => null);
+      if (data && data.success) {
+        showToast('Deposit has been rejected.', 'info');
+        await fetchTransactions();
+        return;
+      }
+    } catch (err) {
+      console.warn('API rejectDeposit error:', err);
+    }
+
     setTransactions(prev =>
       prev.map(tx => {
         if (tx.id === txId || tx.hashOrReference === txId) {
-          return { ...tx, status: 'PROCESSING' as any };
+          return { ...tx, status: 'REJECTED' as any };
         }
         return tx;
       })
@@ -1306,22 +1449,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, message: `Insufficient balance. Available: $${user.accountBalance.toFixed(2)}` };
     }
 
-    setUser(prev => ({
-      ...prev,
-      accountBalance: Math.max(0, prev.accountBalance - amount)
-    }));
+    const newBal = Math.max(0, user.accountBalance - amount);
+    setUser(prev => {
+      const updated = {
+        ...prev,
+        accountBalance: newBal
+      };
+      try {
+        localStorage.setItem('bem_user_v3', JSON.stringify(updated));
+      } catch (_) {}
+      return updated;
+    });
+
+    // Debit balance on backend server store
+    fetch('/api/user-balance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: user.username || 'Eau231',
+        delta: -amount,
+        note: `Withdrawal payout to ${address}`
+      })
+    }).catch(() => {});
+
+    const ref = `BEM-WTD-${Math.floor(100000 + Math.random() * 900000)}`;
+    const effectiveUsername = user.username || 'Eau231';
+    const effectiveFullName = user.fullName || user.username || 'Investor';
+    const effectiveEmail = user.email || `${effectiveUsername.toLowerCase()}@primetrade.us.ci`;
 
     const newTx: Transaction = {
       id: `tx-${Date.now()}`,
       type: 'WITHDRAWAL',
       amount,
       asset: method,
-      status: 'PROCESSING',
+      status: 'PENDING',
       date: new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
-      hashOrReference: `BEM-WTD-${Math.floor(100000 + Math.random() * 900000)}`,
+      hashOrReference: ref,
       note: `Payout to ${address}`
     };
-    setTransactions(prev => [newTx, ...prev]);
+
+    setTransactions(prev => {
+      const updated = [newTx, ...prev];
+      try {
+        localStorage.setItem('bem_transactions_v2', JSON.stringify(updated));
+      } catch (_) {}
+      return updated;
+    });
+
+    // Record on server store so admin ledger reflects it
+    fetch('/api/transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: effectiveUsername,
+        userFullName: effectiveFullName,
+        userEmail: effectiveEmail,
+        type: 'WITHDRAWAL',
+        amount,
+        asset: method,
+        status: 'PENDING',
+        hashOrReference: ref,
+        note: `Payout to ${address}`
+      })
+    })
+      .then(res => res.json())
+      .then(d => {
+        if (d && d.success) {
+          fetchTransactions();
+        }
+      })
+      .catch(() => {});
 
     showToast(`Withdrawal of $${amount.toFixed(2)} submitted for processing!`, 'success');
     addNotification('Withdrawal Disbursing', `Withdrawal of $${amount.toFixed(2)} to ${address} is being routed.`, 'wallet');
@@ -1415,20 +1612,65 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Wallet disconnected', 'info');
   };
 
-  const submitKyc = (level: 'tier1' | 'tier2', data: any) => {
-    setUser(prev => ({
-      ...prev,
-      isKycVerified: true,
-      kycTier: level === 'tier1' ? 'Tier 1 Basic' : 'Tier 2 Institutional Verified',
-      fullName: data.fullName || prev.fullName,
-      country: data.country || prev.country
-    }));
+  const submitKyc = async (level: 'tier1' | 'tier2', data: any) => {
+    const isAuto = !!data?.autoVerify;
+    const effectiveUsername = user.username || 'Eau231';
+    const effectiveFullName = data?.fullName || user.fullName || effectiveUsername;
+    const effectiveCountry = data?.issueCountry || data?.country || user.country || 'United States';
+    const effectiveDoc = data?.docNumber || `A${Math.floor(10000000 + Math.random() * 90000000)}`;
+    const effectiveType = data?.idType || 'International Passport';
+
+    // Post submission to server store
+    try {
+      await fetch('/api/kyc-submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: effectiveUsername,
+          fullName: effectiveFullName,
+          email: user.email || `${effectiveUsername.toLowerCase()}@primetrade.us.ci`,
+          idType: effectiveType,
+          docNumber: effectiveDoc,
+          issueCountry: effectiveCountry,
+          frontDocumentName: data?.frontDocumentName || 'passport_scan.pdf',
+          proofDocumentName: data?.proofDocumentName || 'utility_statement.pdf',
+          status: isAuto ? 'APPROVED' : 'PENDING'
+        })
+      });
+    } catch (err) {
+      console.warn('KYC submit error:', err);
+    }
+
+    const newTier: UserProfile['kycTier'] = isAuto
+      ? (level === 'tier1' ? 'Tier 1 Basic' : 'Tier 2 Institutional Verified')
+      : 'Pending Verification';
+
+    setUser(prev => {
+      const updated = {
+        ...prev,
+        isKycVerified: isAuto,
+        kycTier: newTier,
+        fullName: effectiveFullName,
+        country: effectiveCountry
+      };
+      try {
+        localStorage.setItem('bem_user_v3', JSON.stringify(updated));
+      } catch (_) {}
+      return updated;
+    });
+
     setIsKycModalOpen(false);
     try {
       confetti({ particleCount: 80, spread: 70, origin: { y: 0.5 } });
     } catch (_) {}
-    showToast(`Identity Verification approved! Institutional features unlocked.`, 'success');
-    addNotification('KYC Verified', 'Your identity documentation has been confirmed by compliance.', 'security');
+
+    if (isAuto) {
+      showToast(`Identity Verification approved! Institutional features unlocked.`, 'success');
+      addNotification('KYC Verified', 'Your identity documentation has been confirmed by compliance.', 'security');
+    } else {
+      showToast(`Documents submitted to compliance desk for review!`, 'success');
+      addNotification('KYC Under Review', 'Your identity documentation was submitted for compliance verification.', 'security');
+    }
   };
 
   const unreadNotifsCount = notifications.filter(n => !n.read).length;
