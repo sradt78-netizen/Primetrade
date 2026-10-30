@@ -1,0 +1,6 @@
+{
+  "name": "Blue Edge Market - Licensed Investment Brokerage & Trading Platform",
+  "description": "Institutional-grade licensed broker platform for stocks, bonds, and crypto assets with real-time market charts, portfolio tracking, and ultra-low latency execution.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

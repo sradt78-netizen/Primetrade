@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 140">
+  <circle cx="70" cy="70" r="68" fill="#0f172a" stroke="#10b981" stroke-width="3"/>
+  <text x="70" y="66" fill="#f1f5f9" font-family="sans-serif" font-size="20" font-weight="600" text-anchor="middle">Lisa</text>
+  <text x="70" y="92" fill="#f1f5f9" font-family="sans-serif" font-size="20" font-weight="600" text-anchor="middle">Anderson</text>
+</svg>
