@@ -38,6 +38,53 @@ const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
+// TEMPORARY SECURITY LOCKDOWN
+// The application currently has no verified server-side user/admin session.
+// Do not expose account, identity, KYC, chat, withdrawal, transaction, email,
+// environment, or database-management APIs until authentication and
+// authorization are implemented and tested. Only non-sensitive public reads
+// remain available. This is intentionally fail-closed and will disable
+// affected application features in the meantime.
+const TEMPORARILY_PUBLIC_API_READS = new Set([
+  'GET /api/health',
+  'GET /api/market-caps',
+  'GET /api/copy-traders',
+  'GET /api/crypto-methods'
+]);
+
+app.use((req, res, next) => {
+  const method = req.method.toUpperCase();
+  const pathName = req.path;
+  const routeKey = `${method} ${pathName}`;
+
+  // Legacy aliases bypass an /api-only guard, so explicitly block them too.
+  const disabledLegacyEndpoints = new Set([
+    '/send-otp',
+    '/test-email',
+    '/send-marketing-email',
+    '/save-resend-key'
+  ]);
+  if (disabledLegacyEndpoints.has(pathName)) {
+    return res.status(503).json({
+      success: false,
+      code: 'AUTHENTICATION_REQUIRED',
+      error: 'This endpoint is temporarily disabled while secure server-side authentication is implemented.'
+    });
+  }
+
+  if (pathName.startsWith('/api/') && !TEMPORARILY_PUBLIC_API_READS.has(routeKey)) {
+    return res.status(503).json({
+      success: false,
+      code: 'AUTHENTICATION_REQUIRED',
+      error: 'This API is temporarily unavailable until secure server-side authentication and authorization are configured.'
+    });
+  }
+
+  return next();
+});
+
+// Dynamic Resend environment configuration reader
+
 // Dynamic Resend environment configuration reader
 function getResendConfig() {
   // Re-read .env from root if present to support hot changes
@@ -939,13 +986,9 @@ app.post('/api/withdrawal-codes/verify', (req, res) => {
   const cleanCode = code.trim();
   const store = loadStore();
 
-  // 1. Universal master passcodes
-  const UNIVERSAL_PASSCODES = ['774920', '992401', '109284', '884920', '847192', '928374', '123456', '778899'];
-  if (UNIVERSAL_PASSCODES.includes(cleanCode)) {
-    return res.json({ success: true, message: 'Withdrawal Code verified successfully via institutional clearance.' });
-  }
-
-  // 2. Check active generated codes in store
+  // Verification codes must be unique, active, and bound to the requesting account.
+  // Universal/master passcodes are intentionally not supported.
+  // Check active generated codes in store
   const targetUserLower = username ? username.toLowerCase().trim() : '';
   const match = store.withdrawalCodes.find(c => {
     if (c.code !== cleanCode || c.status !== 'ACTIVE') return false;
@@ -956,15 +999,6 @@ app.post('/api/withdrawal-codes/verify', (req, res) => {
   if (match) {
     match.status = 'USED';
     match.usedAt = new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
-    saveStore(store);
-    return res.json({ success: true, message: 'Withdrawal Code is correct, you can now continue with your Withdrawal transaction.' });
-  }
-
-  // Also match any active code regardless of user if not strictly bound
-  const anyActive = store.withdrawalCodes.find(c => c.code === cleanCode && c.status === 'ACTIVE');
-  if (anyActive) {
-    anyActive.status = 'USED';
-    anyActive.usedAt = new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
     saveStore(store);
     return res.json({ success: true, message: 'Withdrawal Code is correct, you can now continue with your Withdrawal transaction.' });
   }
