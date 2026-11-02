@@ -157,11 +157,10 @@ export const AuthModals: React.FC = () => {
       return;
     }
     setLoginError('');
-    const success = login(loginEmail.trim(), loginPassword);
-    if (success) {
-      setIsLoginOpen(false);
-      setActiveTab('dashboard');
-    }
+    // Client-side login is not authentication. Keep access closed until
+    // a server-verified account/session flow is implemented.
+    setLoginError('Secure sign-in is temporarily unavailable while server-side authentication is being completed.');
+    showToast('Sign-in is temporarily disabled for security.', 'error');
   };
 
   const handleRegisterNext = (e: React.FormEvent) => {
@@ -197,9 +196,11 @@ export const AuthModals: React.FC = () => {
         return;
       }
 
-      // Progress to Step 4: OTP Verification
-      setRegisterStep(4);
-      dispatchNewOtp(regEmail);
+      // A browser-generated OTP is not proof of email ownership. Do not
+      // activate accounts until OTP generation and verification are server-side.
+      setOtpError('Registration is temporarily unavailable until secure server-side email verification is ready.');
+      showToast('Registration is temporarily disabled for security.', 'error');
+      return;
     } else if (registerStep === 4) {
       handleOtpVerify();
     }
