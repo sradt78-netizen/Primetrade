@@ -810,9 +810,9 @@ app.post('/api/chat-messages', requireInvestor, (req, res) => {
     time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     timestamp: Date.now(),
     userId: targetUserId,
-    userName: userName || (msgSender === 'admin' ? 'Senior Broker Admin' : targetUserId),
+    userName: targetUserId,
     userEmail: userEmail || `${targetUserId.toLowerCase()}@primetrade.us.ci`,
-    isReadByAdmin: msgSender === 'admin'
+    isReadByAdmin: false
   };
 
   store.supportMessages.push(newMsg);
