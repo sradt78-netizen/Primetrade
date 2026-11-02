@@ -53,3 +53,22 @@ export async function requireInvestor(req:Request,res:Response,next:NextFunction
 }
 export async function currentInvestor(req:Request,res:Response) { res.json({success:true,user:req.authUser}); }
 export async function logoutInvestor(req:Request,res:Response) { const token=(req as any).cookies?.[COOKIE]; if(token){const pool=getPgPool(); if(pool) await pool.query('DELETE FROM investor_sessions WHERE token_hash=$1',[hashToken(token)]).catch(()=>{});} res.clearCookie(COOKIE,{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'lax',path:'/'});res.json({success:true}); }
+
+
+/**
+ * Admin authorization is deliberately fail-closed. Configure
+ * PRIMETRADE_ADMIN_USER_IDS with trusted investor_auth IDs in Vercel.
+ * Never authorize by email: registration does not prove email ownership.
+ */
+export async function requireAdmin(req:Request,res:Response,next:NextFunction) {
+  const investorGuard = requireInvestor;
+  await investorGuard(req,res,() => {
+    const allowed = (process.env.PRIMETRADE_ADMIN_USER_IDS || '')
+      .split(',').map(v => v.trim()).filter(Boolean);
+    const userId = req.authUser?.id || '';
+    if (!allowed.length || !userId || !allowed.includes(userId)) {
+      return res.status(403).json({success:false,message:'Administrator access is not configured for this account.'});
+    }
+    next();
+  });
+}
