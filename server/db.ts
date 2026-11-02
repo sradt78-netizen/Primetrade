@@ -13,6 +13,8 @@ const __dirname = path.dirname(__filename);
 let pgPool: pg.Pool | null = null;
 let currentDbUrl: string = '';
 
+export function getPgPool(): pg.Pool | null { return initPgPool(); }
+
 export function getDatabaseUrl(): string {
   // Check process.env first
   if (process.env.DATABASE_URL && process.env.DATABASE_URL.trim().length > 10) {
