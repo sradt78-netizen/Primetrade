@@ -38,6 +38,53 @@ const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
+// TEMPORARY SECURITY LOCKDOWN
+// The application currently has no verified server-side user/admin session.
+// Do not expose account, identity, KYC, chat, withdrawal, transaction, email,
+// environment, or database-management APIs until authentication and
+// authorization are implemented and tested. Only non-sensitive public reads
+// remain available. This is intentionally fail-closed and will disable
+// affected application features in the meantime.
+const TEMPORARILY_PUBLIC_API_READS = new Set([
+  'GET /api/health',
+  'GET /api/market-caps',
+  'GET /api/copy-traders',
+  'GET /api/crypto-methods'
+]);
+
+app.use((req, res, next) => {
+  const method = req.method.toUpperCase();
+  const pathName = req.path;
+  const routeKey = `${method} ${pathName}`;
+
+  // Legacy aliases bypass an /api-only guard, so explicitly block them too.
+  const disabledLegacyEndpoints = new Set([
+    '/send-otp',
+    '/test-email',
+    '/send-marketing-email',
+    '/save-resend-key'
+  ]);
+  if (disabledLegacyEndpoints.has(pathName)) {
+    return res.status(503).json({
+      success: false,
+      code: 'AUTHENTICATION_REQUIRED',
+      error: 'This endpoint is temporarily disabled while secure server-side authentication is implemented.'
+    });
+  }
+
+  if (pathName.startsWith('/api/') && !TEMPORARILY_PUBLIC_API_READS.has(routeKey)) {
+    return res.status(503).json({
+      success: false,
+      code: 'AUTHENTICATION_REQUIRED',
+      error: 'This API is temporarily unavailable until secure server-side authentication and authorization are configured.'
+    });
+  }
+
+  return next();
+});
+
+// Dynamic Resend environment configuration reader
+
 // Dynamic Resend environment configuration reader
 function getResendConfig() {
   // Re-read .env from root if present to support hot changes
