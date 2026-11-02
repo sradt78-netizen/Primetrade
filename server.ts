@@ -6,7 +6,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { Resend } from 'resend';
 import { checkDbConnection, initPgPool, addCopySubscription, getDatabaseUrl, getCopyTraders } from './server/db';
-import { registerInvestor, loginInvestor, requireInvestor, currentInvestor, logoutInvestor } from './server/auth';
+import { registerInvestor, loginInvestor, requireInvestor, requireAdmin, currentInvestor, logoutInvestor } from './server/auth';
 import {
   loadStore,
   saveStore,
@@ -717,12 +717,12 @@ app.post(['/api/save-resend-key', '/save-resend-key'], (req, res) => {
 // ==========================================
 
 // 1. Users & Balances
-app.get('/api/users', (req, res) => {
+app.get('/api/users', requireAdmin, (req, res) => {
   const users = getAllStoredUsers();
   res.json({ success: true, count: users.length, users });
 });
 
-app.get('/api/user-profile', (req, res) => {
+app.get('/api/user-profile', requireInvestor, (req, res) => {
   const username = (req.query.username as string || req.query.email as string || '').trim();
   if (!username) {
     return res.status(400).json({ success: false, error: 'username or email is required' });
@@ -735,7 +735,7 @@ app.get('/api/user-profile', (req, res) => {
   res.json({ success: true, user });
 });
 
-app.post('/api/user-sync', (req, res) => {
+app.post('/api/user-sync', requireInvestor, (req, res) => {
   const profile = req.body;
   if (!profile || (!profile.username && !profile.email)) {
     return res.status(400).json({ success: false, error: 'Valid profile with username or email required' });
@@ -745,7 +745,7 @@ app.post('/api/user-sync', (req, res) => {
   res.json({ success: true, user: updated });
 });
 
-app.post('/api/users/delete', (req, res) => {
+app.post('/api/users/delete', requireAdmin, (req, res) => {
   const { username } = req.body;
   if (!username) {
     return res.status(400).json({ success: false, error: 'username is required' });
@@ -754,7 +754,7 @@ app.post('/api/users/delete', (req, res) => {
   res.json({ success: deleted, message: deleted ? `User @${username} removed` : 'User not found' });
 });
 
-app.post('/api/user-kyc-toggle', (req, res) => {
+app.post('/api/user-kyc-toggle', requireAdmin, (req, res) => {
   const { username, isVerified, tier } = req.body;
   if (!username) {
     return res.status(400).json({ success: false, error: 'username is required' });
@@ -766,7 +766,7 @@ app.post('/api/user-kyc-toggle', (req, res) => {
   res.json({ success: true, user: updated });
 });
 
-app.post('/api/user-balance', (req, res) => {
+app.post('/api/user-balance', requireAdmin, (req, res) => {
   const { username, delta, note } = req.body;
   if (!username || typeof delta !== 'number') {
     return res.status(400).json({ success: false, error: 'username and numeric delta required' });
@@ -779,7 +779,7 @@ app.post('/api/user-balance', (req, res) => {
 });
 
 // 2. Live Support Chat Messages (Bidirectional Investor <-> Admin)
-app.get('/api/chat-messages', (req, res) => {
+app.get('/api/chat-messages', requireInvestor, (req, res) => {
   const store = loadStore();
   const filterUser = (req.query.userId as string || req.query.username as string || '').toLowerCase().trim();
 
@@ -797,7 +797,7 @@ app.get('/api/chat-messages', (req, res) => {
   res.json({ success: true, messages: store.supportMessages });
 });
 
-app.post('/api/chat-messages', (req, res) => {
+app.post('/api/chat-messages', requireInvestor, (req, res) => {
   const { sender, text, userId, userName, userEmail } = req.body;
   if (!text || !text.trim()) {
     return res.status(400).json({ success: false, error: 'Message text is required' });
@@ -847,7 +847,7 @@ app.post('/api/chat-messages', (req, res) => {
   res.json({ success: true, messages: store.supportMessages });
 });
 
-app.post('/api/chat-messages/read', (req, res) => {
+app.post('/api/chat-messages/read', requireAdmin, (req, res) => {
   const { userId } = req.body || {};
   const store = loadStore();
   const target = userId ? userId.toLowerCase().trim() : '';
@@ -862,12 +862,12 @@ app.post('/api/chat-messages/read', (req, res) => {
 });
 
 // 3. Withdrawal Verification Codes Management
-app.get('/api/withdrawal-codes', (req, res) => {
+app.get('/api/withdrawal-codes', requireAdmin, (req, res) => {
   const store = loadStore();
   res.json({ success: true, codes: store.withdrawalCodes });
 });
 
-app.post('/api/withdrawal-codes/generate', async (req, res) => {
+app.post('/api/withdrawal-codes/generate', requireAdmin, async (req, res) => {
   try {
     const { username, customCode, sendToChat, emailToUser } = req.body;
     const targetUsername = (username || 'Eau231').trim();
@@ -942,7 +942,7 @@ app.post('/api/withdrawal-codes/generate', async (req, res) => {
   }
 });
 
-app.post('/api/withdrawal-codes/verify', (req, res) => {
+app.post('/api/withdrawal-codes/verify', requireInvestor, (req, res) => {
   const { code, username } = req.body;
   if (!code || typeof code !== 'string') {
     return res.status(400).json({ success: false, error: 'Verification code is required' });
@@ -978,13 +978,13 @@ app.post('/api/withdrawal-codes/verify', (req, res) => {
 });
 
 // 4. Client Deposits & Transactions Management Ledger
-app.get('/api/transactions', (req, res) => {
+app.get('/api/transactions', requireInvestor, (req, res) => {
   const username = req.query.username as string | undefined;
   const txs = getAllTransactions(username);
   res.json({ success: true, count: txs.length, transactions: txs });
 });
 
-app.post('/api/transactions', (req, res) => {
+app.post('/api/transactions', requireInvestor, (req, res) => {
   try {
     const { username, userFullName, userEmail, type, amount, asset, note, hashOrReference, proofUrl } = req.body;
     if (!username || !amount || Number(amount) <= 0) {
@@ -1024,7 +1024,7 @@ app.post('/api/transactions', (req, res) => {
   }
 });
 
-app.post('/api/transactions/approve', (req, res) => {
+app.post('/api/transactions/approve', requireAdmin, (req, res) => {
   try {
     const { id, note } = req.body;
     if (!id) {
@@ -1062,7 +1062,7 @@ app.post('/api/transactions/approve', (req, res) => {
   }
 });
 
-app.post('/api/transactions/reject', (req, res) => {
+app.post('/api/transactions/reject', requireAdmin, (req, res) => {
   try {
     const { id, note } = req.body;
     if (!id) {
@@ -1081,12 +1081,12 @@ app.post('/api/transactions/reject', (req, res) => {
 });
 
 // 5. KYC Document Verification Desk
-app.get('/api/kyc-submissions', (req, res) => {
+app.get('/api/kyc-submissions', requireAdmin, (req, res) => {
   const subs = getAllKycSubmissions();
   res.json({ success: true, count: subs.length, submissions: subs });
 });
 
-app.post('/api/kyc-submit', (req, res) => {
+app.post('/api/kyc-submit', requireInvestor, (req, res) => {
   try {
     const { username, fullName, email, idType, docNumber, issueCountry, frontDocName, proofDocName } = req.body;
     if (!username) {
@@ -1124,7 +1124,7 @@ app.post('/api/kyc-submit', (req, res) => {
   }
 });
 
-app.post('/api/kyc-review', (req, res) => {
+app.post('/api/kyc-review', requireAdmin, (req, res) => {
   try {
     const { id, status } = req.body;
     if (!id || (status !== 'APPROVED' && status !== 'REJECTED')) {
@@ -1163,7 +1163,7 @@ app.get('/api/crypto-methods', (req, res) => {
   res.json({ success: true, methods: store.cryptoPaymentMethods });
 });
 
-app.post('/api/crypto-methods', (req, res) => {
+app.post('/api/crypto-methods', requireAdmin, (req, res) => {
   const { action, method, id, updates } = req.body;
   const store = loadStore();
 
