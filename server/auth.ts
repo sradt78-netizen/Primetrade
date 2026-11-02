@@ -57,16 +57,16 @@ export async function logoutInvestor(req:Request,res:Response) { const token=(re
 
 /**
  * Admin authorization is deliberately fail-closed. Configure
- * PRIMETRADE_ADMIN_EMAILS in the Vercel project environment as a
- * comma-separated allowlist of verified administrator account emails.
+ * PRIMETRADE_ADMIN_USER_IDS with trusted investor_auth IDs in Vercel.
+ * Never authorize by email: registration does not prove email ownership.
  */
 export async function requireAdmin(req:Request,res:Response,next:NextFunction) {
   const investorGuard = requireInvestor;
   await investorGuard(req,res,() => {
-    const allowed = (process.env.PRIMETRADE_ADMIN_EMAILS || '')
-      .split(',').map(v => v.trim().toLowerCase()).filter(Boolean);
-    const email = req.authUser?.email?.toLowerCase() || '';
-    if (!allowed.length || !email || !allowed.includes(email)) {
+    const allowed = (process.env.PRIMETRADE_ADMIN_USER_IDS || '')
+      .split(',').map(v => v.trim()).filter(Boolean);
+    const userId = req.authUser?.id || '';
+    if (!allowed.length || !userId || !allowed.includes(userId)) {
       return res.status(403).json({success:false,message:'Administrator access is not configured for this account.'});
     }
     next();
