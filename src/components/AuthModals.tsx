@@ -184,8 +184,8 @@ export const AuthModals: React.FC = () => {
       }
       setRegisterStep(3);
     } else if (registerStep === 3) {
-      if (!regPassword || regPassword.length < 6) {
-        showToast('Password must be at least 6 characters', 'error');
+      if (!regPassword || regPassword.length < 10) {
+        showToast('Password must be at least 10 characters', 'error');
         return;
       }
       if (regPassword !== regConfirmPassword) {
