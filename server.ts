@@ -300,7 +300,7 @@ app.post(['/api/send-otp', '/send-otp'], async (req, res) => {
     const code = String(randomInt(100000, 1000000));
     const codeHash = createHash('sha256').update(code).digest('hex');
     await pool.query("INSERT INTO email_verification_codes(email,code_hash,expires_at,attempts,verified_at,last_sent_at,created_at) VALUES($1,$2,NOW()+INTERVAL '10 minutes',0,NULL,NOW(),NOW()) ON CONFLICT(email) DO UPDATE SET code_hash=EXCLUDED.code_hash,expires_at=EXCLUDED.expires_at,attempts=0,verified_at=NULL,last_sent_at=NOW(),created_at=NOW()", [email, codeHash]);
-    const safeName = fullName.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]!));
+    const safeName = fullName.replace(/[&<>"]/g, (c: string) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c as '&' | '<' | '>' | '"']!));
     const html = '<!doctype html><html><body><h2>PrimeTrade email verification</h2><p>Hello ' + safeName + ',</p><p>Your email verification code is:</p><p style="font-size:30px;font-weight:bold;letter-spacing:8px">' + code + '</p><p>This code expires in 10 minutes. If you did not request it, ignore this email.</p></body></html>';
     const sent = await sendResendMail(config.client, config.fromEmail, email, 'Your PrimeTrade verification code', html);
     if (!sent.success) { await pool.query('DELETE FROM email_verification_codes WHERE email=$1 AND code_hash=$2', [email, codeHash]); return res.status(502).json({ success: false, delivered: false, error: 'We could not deliver the verification email. Check the address or try again later.' }); }
