@@ -986,13 +986,9 @@ app.post('/api/withdrawal-codes/verify', (req, res) => {
   const cleanCode = code.trim();
   const store = loadStore();
 
-  // 1. Universal master passcodes
-  const UNIVERSAL_PASSCODES = ['774920', '992401', '109284', '884920', '847192', '928374', '123456', '778899'];
-  if (UNIVERSAL_PASSCODES.includes(cleanCode)) {
-    return res.json({ success: true, message: 'Withdrawal Code verified successfully via institutional clearance.' });
-  }
-
-  // 2. Check active generated codes in store
+  // Verification codes must be unique, active, and bound to the requesting account.
+  // Universal/master passcodes are intentionally not supported.
+  // Check active generated codes in store
   const targetUserLower = username ? username.toLowerCase().trim() : '';
   const match = store.withdrawalCodes.find(c => {
     if (c.code !== cleanCode || c.status !== 'ACTIVE') return false;
@@ -1003,15 +999,6 @@ app.post('/api/withdrawal-codes/verify', (req, res) => {
   if (match) {
     match.status = 'USED';
     match.usedAt = new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
-    saveStore(store);
-    return res.json({ success: true, message: 'Withdrawal Code is correct, you can now continue with your Withdrawal transaction.' });
-  }
-
-  // Also match any active code regardless of user if not strictly bound
-  const anyActive = store.withdrawalCodes.find(c => c.code === cleanCode && c.status === 'ACTIVE');
-  if (anyActive) {
-    anyActive.status = 'USED';
-    anyActive.usedAt = new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
     saveStore(store);
     return res.json({ success: true, message: 'Withdrawal Code is correct, you can now continue with your Withdrawal transaction.' });
   }
