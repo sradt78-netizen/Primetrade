@@ -1,4 +1,3 @@
-export default async function handler(req: any, res: any) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.status(200).json({ status: 'ok', message: 'Blue Edge Market Serverless API Online' });
-}
+import app from '../server';
+
+export default app;
