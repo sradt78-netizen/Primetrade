@@ -150,14 +150,14 @@ export const AuthModals: React.FC = () => {
     }
   };
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginEmail.trim() || !loginPassword.trim()) {
       setLoginError('Please enter both your email/username and password');
       return;
     }
     setLoginError('');
-    const success = login(loginEmail.trim(), loginPassword);
+    const success = await login(loginEmail.trim(), loginPassword);
     if (success) {
       setIsLoginOpen(false);
       setActiveTab('dashboard');
@@ -239,7 +239,7 @@ export const AuthModals: React.FC = () => {
     }
   };
 
-  const handleOtpVerify = () => {
+  const handleOtpVerify = async () => {
     const fullCode = otpDigits.join('');
     if (fullCode.length < 6) {
       setOtpError('Please enter all 6 digits of your one-time verification code');
@@ -247,38 +247,26 @@ export const AuthModals: React.FC = () => {
     }
 
     setIsVerifyingOtp(true);
-    setTimeout(() => {
-      setIsVerifyingOtp(false);
+    try {
       const expectedCode = generatedOtp || deliveryStatus?.fallbackOtp;
-      if (fullCode === expectedCode) {
-        // Successful verification! Complete registration
-        register({
-          username: regUsername.trim(),
-          fullName: regFullName.trim(),
-          email: regEmail.trim(),
-          phone: regPhone.trim(),
-          country: regCountry,
-          city: regCity.trim()
-        });
-
-        // Trigger 'Account is Active' Welcome Marketing Email
-        fetch('/api/send-marketing-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: regEmail.trim(),
-            fullName: regFullName.trim(),
-            campaignType: 'account_active'
-          })
-        }).catch(() => {});
-
-        setIsRegisterOpen(false);
-        setActiveTab('dashboard');
-      } else {
+      if (fullCode !== expectedCode) {
         setOtpError('Invalid verification code. Please check your OTP and try again.');
         showToast('Incorrect verification code. Please retry.', 'error');
+        return;
       }
-    }, 600);
+      // The current OTP flow is client-generated; do not treat it as server-side identity proof.
+      // Account creation is persisted with a server-side password hash and session cookie.
+      const success = await register({
+        username: regUsername.trim(), fullName: regFullName.trim(), email: regEmail.trim(),
+        phone: regPhone.trim(), country: regCountry, city: regCity.trim()
+      }, regPassword);
+      if (success) {
+        fetch('/api/send-marketing-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: regEmail.trim(), fullName: regFullName.trim(), campaignType: 'account_active' }) }).catch(() => {});
+        setIsRegisterOpen(false); setActiveTab('dashboard');
+      } else {
+        setOtpError('Account creation failed. Please review your details and try again.');
+      }
+    } finally { setIsVerifyingOtp(false); }
   };
 
   const resetRegisterModal = () => {
