@@ -6,6 +6,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { Resend } from 'resend';
 import { checkDbConnection, initPgPool, addCopySubscription, getDatabaseUrl, getCopyTraders } from './server/db';
+import { registerInvestor, loginInvestor, requireInvestor, currentInvestor, logoutInvestor } from './server/auth';
 import {
   loadStore,
   saveStore,
@@ -37,6 +38,17 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
+app.use((req, _res, next) => {
+  const raw = req.headers.cookie || '';
+  (req as any).cookies = Object.fromEntries(raw.split(';').map(v => v.trim()).filter(Boolean).map(v => { const i=v.indexOf('='); return [decodeURIComponent(v.slice(0,i)), decodeURIComponent(v.slice(i+1))]; }));
+  next();
+});
+
+// Persistent investor authentication. Passwords are hashed server-side; sessions are opaque HttpOnly cookies.
+app.post('/api/auth/register', registerInvestor);
+app.post('/api/auth/login', loginInvestor);
+app.get('/api/auth/me', requireInvestor, currentInvestor);
+app.post('/api/auth/logout', logoutInvestor);
 
 // Dynamic Resend environment configuration reader
 function getResendConfig() {
