@@ -185,7 +185,7 @@ app.get('/api/env-status', (req, res) => {
     timestamp: new Date().toISOString(),
     environment: {
       RESEND_API_KEY_CONNECTED: cfg.isConfigured,
-      RESEND_KEY_PREVIEW: cfg.isConfigured ? `${cfg.rawKey.slice(0, 5)}...${cfg.rawKey.slice(-4)}` : 'NOT_CONFIGURED',
+      RESEND_KEY_CONFIGURED: cfg.isConfigured,
       RESEND_FROM_EMAIL: cfg.fromEmail,
       GEMINI_API_KEY_CONNECTED: !!process.env.GEMINI_API_KEY,
       APP_URL: process.env.APP_URL || `http://localhost:${PORT}`,
@@ -196,7 +196,7 @@ app.get('/api/env-status', (req, res) => {
 });
 
 // Database diagnostics & status for Neon PostgreSQL
-app.get('/api/db-status', async (req, res) => {
+app.get('/api/db-status', requireAdmin, async (req, res) => {
   try {
     const status = await checkDbConnection();
     return res.json({ success: true, ...status });
@@ -206,7 +206,7 @@ app.get('/api/db-status', async (req, res) => {
 });
 
 // Activate or update Neon PostgreSQL connection string
-app.post('/api/db-connect', async (req, res) => {
+app.post('/api/db-connect', requireAdmin, async (req, res) => {
   try {
     const { databaseUrl } = req.body;
     if (!databaseUrl || typeof databaseUrl !== 'string') {
@@ -259,9 +259,10 @@ app.get('/api/copy-traders', async (req, res) => {
 });
 
 // Copy trading subscriptions endpoint
-app.post('/api/copy-traders/copy', async (req, res) => {
+app.post('/api/copy-traders/copy', requireInvestor, async (req, res) => {
   try {
-    const { traderId, traderName, traderSpecialty, amount, userId } = req.body;
+    const { traderId, traderName, traderSpecialty, amount } = req.body;
+    const userId = req.authUser!.username;
     if (!traderId || !amount || Number(amount) <= 0) {
       return res.status(400).json({ success: false, error: 'Valid traderId and amount are required' });
     }
@@ -394,7 +395,7 @@ app.post(['/api/send-otp', '/send-otp'], async (req, res) => {
 });
 
 // Endpoint: Test Email Dispatch
-app.post(['/api/test-email', '/test-email'], async (req, res) => {
+app.post(['/api/test-email', '/test-email'], requireAdmin, async (req, res) => {
   try {
     const { toEmail } = req.body;
     const target = (toEmail || 'sradt78@gmail.com').trim();
@@ -453,7 +454,7 @@ app.post(['/api/test-email', '/test-email'], async (req, res) => {
 });
 
 // Endpoint: Send Marketing Lifecycle Email (Account Active, Deposit Nudge, Market Opportunity)
-app.post(['/api/send-marketing-email', '/send-marketing-email'], async (req, res) => {
+app.post(['/api/send-marketing-email', '/send-marketing-email'], requireAdmin, async (req, res) => {
   try {
     const { email, fullName, campaignType = 'account_active', customSubject, customContent } = req.body;
     if (!email) {
@@ -667,7 +668,7 @@ app.post(['/api/send-marketing-email', '/send-marketing-email'], async (req, res
 });
 
 // Endpoint: Save or update RESEND_API_KEY directly into .env and runtime
-app.post(['/api/save-resend-key', '/save-resend-key'], (req, res) => {
+app.post(['/api/save-resend-key', '/save-resend-key'], requireAdmin, (req, res) => {
   try {
     const { apiKey, fromEmail } = req.body;
     if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim().startsWith('re_')) {
