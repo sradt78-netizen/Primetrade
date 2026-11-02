@@ -939,34 +939,24 @@ app.post('/api/withdrawal-codes/verify', (req, res) => {
   const cleanCode = code.trim();
   const store = loadStore();
 
-  // 1. Universal master passcodes
-  const UNIVERSAL_PASSCODES = ['774920', '992401', '109284', '884920', '847192', '928374', '123456', '778899'];
-  if (UNIVERSAL_PASSCODES.includes(cleanCode)) {
-    return res.json({ success: true, message: 'Withdrawal Code verified successfully via institutional clearance.' });
+  // Withdrawal codes must be bound to the requesting account. There are no
+  // universal/master codes and no cross-account fallback.
+  const targetUserLower = typeof username === 'string' ? username.toLowerCase().trim() : '';
+  if (!targetUserLower) {
+    return res.status(400).json({ success: false, error: 'username is required' });
   }
 
-  // 2. Check active generated codes in store
-  const targetUserLower = username ? username.toLowerCase().trim() : '';
-  const match = store.withdrawalCodes.find(c => {
-    if (c.code !== cleanCode || c.status !== 'ACTIVE') return false;
-    if (targetUserLower && c.username.toLowerCase() !== targetUserLower) return false;
-    return true;
-  });
+  const match = store.withdrawalCodes.find(c =>
+    c.code === cleanCode &&
+    c.status === 'ACTIVE' &&
+    c.username.toLowerCase() === targetUserLower
+  );
 
   if (match) {
     match.status = 'USED';
-    match.usedAt = new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+    match.usedAt = new Date().toISOString();
     saveStore(store);
-    return res.json({ success: true, message: 'Withdrawal Code is correct, you can now continue with your Withdrawal transaction.' });
-  }
-
-  // Also match any active code regardless of user if not strictly bound
-  const anyActive = store.withdrawalCodes.find(c => c.code === cleanCode && c.status === 'ACTIVE');
-  if (anyActive) {
-    anyActive.status = 'USED';
-    anyActive.usedAt = new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
-    saveStore(store);
-    return res.json({ success: true, message: 'Withdrawal Code is correct, you can now continue with your Withdrawal transaction.' });
+    return res.json({ success: true, message: 'Withdrawal Code verified successfully for this account.' });
   }
 
   return res.status(400).json({
