@@ -172,9 +172,9 @@ export const DEFAULT_SUPPORT_MESSAGES: SupportChatMessage[] = [
 interface AppContextType {
   user: UserProfile;
   isLoggedIn: boolean;
-  login: (emailOrUser: string, pass: string) => boolean;
+  login: (emailOrUser: string, pass: string) => Promise<boolean>;
   logout: () => void;
-  register: (data: Partial<UserProfile>) => void;
+  register: (data: Partial<UserProfile>, password: string) => Promise<boolean>;
   activeTab: string;
   setActiveTab: (tab: string) => void;
   theme: 'dark' | 'light';
@@ -1013,111 +1013,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   // Authentication
-  const login = (emailOrUser: string, _pass: string) => {
-    setIsLoggedIn(true);
-    sessionStorage.setItem('bem_logged_in_session', 'true');
-    localStorage.removeItem('bem_logged_in_v3');
-    const uName = emailOrUser.includes('@') ? emailOrUser.split('@')[0] : emailOrUser;
-    const formattedName = uName.replace(/[._-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-
-    // Fetch or sync user with server store
-    fetch(`/api/user-profile?username=${encodeURIComponent(uName)}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.success && data.user) {
-          const sUser = data.user;
-          setUser(prev => {
-            const updated: UserProfile = {
-              ...prev,
-              username: sUser.username || uName,
-              fullName: sUser.fullName || formattedName,
-              email: sUser.email || (emailOrUser.includes('@') ? emailOrUser : `${uName}@blueedgemarket.com`),
-              country: sUser.country || prev.country || 'United States',
-              accountBalance: typeof sUser.accountBalance === 'number' ? sUser.accountBalance : prev.accountBalance,
-              isKycVerified: typeof sUser.isKycVerified === 'boolean' ? sUser.isKycVerified : prev.isKycVerified,
-              kycTier: sUser.kycTier || prev.kycTier || 'Unverified',
-              avatarInitials: (sUser.fullName || sUser.username || formattedName)[0]?.toUpperCase() || 'U'
-            };
-            localStorage.setItem('bem_user_v3', JSON.stringify(updated));
-            return updated;
-          });
-        }
-      })
-      .catch(() => {});
-
-    setUser(prev => {
-      const updated: UserProfile = {
-        ...prev,
-        username: uName,
-        email: emailOrUser.includes('@') ? emailOrUser : `${uName}@blueedgemarket.com`,
-        fullName: prev.fullName || formattedName,
-        avatarInitials: (prev.fullName || formattedName)[0]?.toUpperCase() || 'U'
-      };
-      localStorage.setItem('bem_user_v3', JSON.stringify(updated));
-      return updated;
-    });
-    setIsLoginOpen(false);
-    showToast('Securely authenticated to client portal', 'success');
-    addNotification('Client Signed In', 'Secure login established with 256-bit SSL encrypted broker gateway.', 'security');
-    return true;
+  const login = async (emailOrUser: string, pass: string): Promise<boolean> => {
+    try {
+      const response = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ identity: emailOrUser.trim(), password: pass }) });
+      const result = await response.json();
+      if (!response.ok || !result.success || !result.user) { showToast(result.message || 'Unable to sign in.', 'error'); return false; }
+      const u = result.user;
+      const signedIn: UserProfile = { ...defaultRealUser, username: u.username, email: u.email, fullName: u.fullName, accountBalance: Number(u.accountBalance || 0), demoBalance: Number(u.demoBalance || 50000), isKycVerified: !!u.isKycVerified, kycTier: u.kycTier || 'Unverified', avatarInitials: (u.fullName || u.username || 'U')[0].toUpperCase() };
+      setUser(signedIn); localStorage.setItem('bem_user_v3', JSON.stringify(signedIn)); setIsLoggedIn(true); sessionStorage.setItem('bem_logged_in_session', 'true'); setIsLoginOpen(false);
+      showToast('Signed in successfully.', 'success'); addNotification('Client Signed In', 'Your investor session is active.', 'security'); return true;
+    } catch { showToast('Unable to reach the account service. Please try again.', 'error'); return false; }
   };
 
   const logout = () => {
-    setIsLoggedIn(false);
-    sessionStorage.removeItem('bem_logged_in_session');
-    localStorage.removeItem('bem_logged_in_v3');
-    setActiveTab('landing');
-    setIsSidebarOpen(false);
-    showToast('Signed out of trading portal', 'info');
+    fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+    setIsLoggedIn(false); sessionStorage.removeItem('bem_logged_in_session'); localStorage.removeItem('bem_logged_in_v3'); localStorage.removeItem('bem_user_v3');
+    setUser(defaultRealUser); setActiveTab('landing'); setIsSidebarOpen(false); showToast('Signed out.', 'info');
   };
 
-  const register = (data: Partial<UserProfile>) => {
-    setIsLoggedIn(true);
-    sessionStorage.setItem('bem_logged_in_session', 'true');
-    localStorage.removeItem('bem_logged_in_v3');
-    const initialChar = (data.fullName || data.username || 'U')[0].toUpperCase();
-    const newUser: UserProfile = {
-      ...defaultRealUser,
-      ...data,
-      accountBalance: 0,
-      avatarInitials: initialChar,
-      referralCode: `BEM-${Math.random().toString(36).substring(2, 7).toUpperCase()}`
-    };
-    setUser(newUser);
-    localStorage.setItem('bem_user_v3', JSON.stringify(newUser));
-    setIsRegisterOpen(false);
-
-    // Sync newly registered user directly into server store so Admin sees them immediately!
-    fetch('/api/user-sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        username: newUser.username,
-        fullName: newUser.fullName,
-        email: newUser.email,
-        phone: newUser.phone,
-        country: newUser.country,
-        city: (newUser as any).city || '',
-        accountBalance: 0,
-        demoBalance: 50000,
-        isKycVerified: false,
-        kycTier: 'Unverified',
-        avatarInitials: initialChar
-      })
-    })
-      .then(res => res.json())
-      .then(d => {
-        if (d && d.success) {
-          syncUserWithServer(newUser.username);
-        }
-      })
-      .catch(err => console.warn('Failed to sync new user to server store:', err));
-
+  const register = async (data: Partial<UserProfile>, password: string): Promise<boolean> => {
     try {
-      confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } });
-    } catch (_) {}
-    showToast('Trading account successfully registered! Welcome to Blue Edge Market.', 'success');
-    addNotification('Account Activated', 'Your client account is live. Complete Identity Verification to lift funding limits.', 'system');
+      const response = await fetch('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ username: data.username, fullName: data.fullName, email: data.email, password }) });
+      const result = await response.json();
+      if (!response.ok || !result.success || !result.user) { showToast(result.message || 'Registration failed.', 'error'); return false; }
+      const u = result.user;
+      const newUser: UserProfile = { ...defaultRealUser, ...data, username: u.username, email: u.email, fullName: u.fullName, accountBalance: 0, demoBalance: 50000, isKycVerified: false, kycTier: 'Unverified', avatarInitials: (u.fullName || u.username)[0].toUpperCase() };
+      setUser(newUser); localStorage.setItem('bem_user_v3', JSON.stringify(newUser)); setIsLoggedIn(true); sessionStorage.setItem('bem_logged_in_session', 'true'); setIsRegisterOpen(false);
+      try { confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } }); } catch (_) {}
+      showToast('Investor account created successfully.', 'success'); addNotification('Account Created', 'Your investor account is ready.', 'system'); return true;
+    } catch { showToast('Unable to reach the account service. Please try again.', 'error'); return false; }
   };
 
   const toggleDemoMode = () => {
