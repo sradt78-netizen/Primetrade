@@ -173,7 +173,6 @@ app.get('/api/env-status', (req, res) => {
     timestamp: new Date().toISOString(),
     environment: {
       RESEND_API_KEY_CONNECTED: cfg.isConfigured,
-      RESEND_KEY_PREVIEW: cfg.isConfigured ? `${cfg.rawKey.slice(0, 5)}...${cfg.rawKey.slice(-4)}` : 'NOT_CONFIGURED',
       RESEND_FROM_EMAIL: cfg.fromEmail,
       GEMINI_API_KEY_CONNECTED: !!process.env.GEMINI_API_KEY,
       APP_URL: process.env.APP_URL || `http://localhost:${PORT}`,
@@ -194,46 +193,14 @@ app.get('/api/db-status', async (req, res) => {
 });
 
 // Activate or update Neon PostgreSQL connection string
-app.post('/api/db-connect', async (req, res) => {
-  try {
-    const { databaseUrl } = req.body;
-    if (!databaseUrl || typeof databaseUrl !== 'string') {
-      return res.status(400).json({ success: false, error: 'databaseUrl is required' });
-    }
-    const cleanUrl = databaseUrl.trim();
-    if (!cleanUrl.startsWith('postgres://') && !cleanUrl.startsWith('postgresql://')) {
-      return res.status(400).json({ success: false, error: 'Invalid database URL. Must start with postgresql:// or postgres://' });
-    }
-
-    // Test connection
-    const testRes = await checkDbConnection(cleanUrl);
-    if (!testRes.connected) {
-      return res.status(400).json({ success: false, error: testRes.error || 'Failed to connect to Neon PostgreSQL' });
-    }
-
-    // Set process.env
-    process.env.DATABASE_URL = cleanUrl;
-
-    // Append or update .env file
-    try {
-      const envPath = path.resolve(__dirname, '.env');
-      let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
-      if (envContent.includes('DATABASE_URL=')) {
-        envContent = envContent.replace(/DATABASE_URL=.*/g, `DATABASE_URL="${cleanUrl}"`);
-      } else {
-        envContent += `\nDATABASE_URL="${cleanUrl}"\n`;
-      }
-      fs.writeFileSync(envPath, envContent.trim() + '\n', 'utf8');
-    } catch (_) {}
-
-    return res.json({
-      success: true,
-      message: 'Successfully connected and activated Neon PostgreSQL database!',
-      status: testRes
-    });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
+// Database credentials must only be configured through the deployment environment.
+// Accepting a connection string over an unauthenticated public API would expose the
+// database to anyone who can reach this endpoint.
+app.post('/api/db-connect', (_req, res) => {
+  return res.status(410).json({
+    success: false,
+    error: 'Database connection settings must be configured securely in the hosting environment.'
+  });
 });
 
 // Copy trading experts directory endpoint (returns 250+ traders)
