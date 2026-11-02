@@ -60,7 +60,6 @@ export const AuthModals: React.FC = () => {
   const [agreeTerms, setAgreeTerms] = useState(false);
 
   // Step 4: OTP Security Verification
-  const [generatedOtp, setGeneratedOtp] = useState<string>('');
   const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [otpTimer, setOtpTimer] = useState<number>(60);
   const [isOtpTimerActive, setIsOtpTimerActive] = useState<boolean>(false);
@@ -71,7 +70,6 @@ export const AuthModals: React.FC = () => {
     delivered: boolean;
     provider?: string;
     warning?: string;
-    fallbackOtp?: string;
   } | null>(null);
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -90,66 +88,18 @@ export const AuthModals: React.FC = () => {
     };
   }, [isOtpTimerActive, otpTimer]);
 
-  // Dispatch / Generate OTP to user's email
+  // Request a server-generated code; never generate or expose codes in the browser.
   const dispatchNewOtp = async (emailTarget: string) => {
-    const newCode = Math.floor(100000 + Math.random() * 900000).toString();
-    setGeneratedOtp(newCode);
-    setOtpDigits(['', '', '', '', '', '']);
-    setOtpError('');
-    setOtpTimer(60);
-    setIsOtpTimerActive(true);
-    setIsSendingOtp(true);
-
+    setOtpDigits(['', '', '', '', '', '']); setOtpError(''); setDeliveryStatus(null); setOtpTimer(60); setIsOtpTimerActive(true); setIsSendingOtp(true);
     try {
-      const storedKey = (localStorage.getItem('admin_resend_api_key') || '').trim();
-      const storedFrom = (localStorage.getItem('admin_resend_from_email') || '').trim();
-
-      const res = await fetch('/api/send-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: emailTarget,
-          otp: newCode,
-          fullName: regFullName.trim(),
-          apiKey: storedKey,
-          fromEmail: storedFrom
-        })
-      });
-
-      const contentType = res.headers.get('content-type') || '';
-      if (res.ok && contentType.includes('application/json')) {
-        const data = await res.json();
-        setDeliveryStatus({
-          delivered: !!data.delivered,
-          provider: data.provider,
-          warning: data.warning,
-          fallbackOtp: data.fallbackOtp || newCode
-        });
-
-        if (data.delivered) {
-          showToast(`Verification code sent to ${emailTarget}. Please check your inbox.`, 'success');
-        } else {
-          showToast(data.warning || 'Email gateway notice: Verification code dispatched.', 'info');
-        }
-      } else {
-        setDeliveryStatus({
-          delivered: false,
-          warning: 'Live email delivery notice: Verification code prepared.',
-          fallbackOtp: newCode
-        });
-      }
-    } catch (err) {
-      console.warn('API send-otp error:', err);
-      setDeliveryStatus({
-        delivered: false,
-        warning: 'Email service notice: Could not connect to email delivery service.',
-        fallbackOtp: newCode
-      });
-    } finally {
-      setIsSendingOtp(false);
-    }
+      const res = await fetch('/api/send-otp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: emailTarget.trim(), fullName: regFullName.trim() }) });
+      const data = await res.json().catch(() => ({}));
+      setDeliveryStatus({ delivered: res.ok && !!data.delivered, provider: data.provider, warning: data.error || data.warning });
+      if (res.ok && data.delivered) showToast('Verification code sent to ' + emailTarget + '. Please check your inbox.', 'success');
+      else { setIsOtpTimerActive(false); setOtpError(data.error || 'We could not send a verification code. Please try again later.'); showToast(data.error || 'Could not send verification email.', 'error'); }
+    } catch { setDeliveryStatus({ delivered: false, warning: 'Could not connect to the email delivery service.' }); setIsOtpTimerActive(false); setOtpError('Could not connect to the email delivery service. Please try again.'); }
+    finally { setIsSendingOtp(false); }
   };
-
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginEmail.trim() || !loginPassword.trim()) {
@@ -241,34 +191,19 @@ export const AuthModals: React.FC = () => {
 
   const handleOtpVerify = async () => {
     const fullCode = otpDigits.join('');
-    if (fullCode.length < 6) {
-      setOtpError('Please enter all 6 digits of your one-time verification code');
-      return;
-    }
-
+    if (fullCode.length !== 6) { setOtpError('Please enter all 6 digits of your one-time verification code'); return; }
+    if (!deliveryStatus?.delivered) { setOtpError('A verification email must be sent before you can verify.'); return; }
     setIsVerifyingOtp(true);
     try {
-      const expectedCode = generatedOtp || deliveryStatus?.fallbackOtp;
-      if (fullCode !== expectedCode) {
-        setOtpError('Invalid verification code. Please check your OTP and try again.');
-        showToast('Incorrect verification code. Please retry.', 'error');
-        return;
-      }
-      // The current OTP flow is client-generated; do not treat it as server-side identity proof.
-      // Account creation is persisted with a server-side password hash and session cookie.
-      const success = await register({
-        username: regUsername.trim(), fullName: regFullName.trim(), email: regEmail.trim(),
-        phone: regPhone.trim(), country: regCountry, city: regCity.trim()
-      }, regPassword);
-      if (success) {
-        fetch('/api/send-marketing-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: regEmail.trim(), fullName: regFullName.trim(), campaignType: 'account_active' }) }).catch(() => {});
-        setIsRegisterOpen(false); setActiveTab('dashboard');
-      } else {
-        setOtpError('Account creation failed. Please review your details and try again.');
-      }
-    } finally { setIsVerifyingOtp(false); }
+      const response = await fetch('/api/verify-otp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: regEmail.trim(), code: fullCode }) });
+      const verification = await response.json().catch(() => ({}));
+      if (!response.ok || !verification.verified) { setOtpError(verification.error || 'Verification failed. Request a new code and try again.'); return; }
+      const success = await register({ username: regUsername.trim(), fullName: regFullName.trim(), email: regEmail.trim(), phone: regPhone.trim(), country: regCountry, city: regCity.trim() }, regPassword);
+      if (success) { fetch('/api/send-marketing-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: regEmail.trim(), fullName: regFullName.trim(), campaignType: 'account_active' }) }).catch(() => {}); setIsRegisterOpen(false); setActiveTab('dashboard'); }
+      else setOtpError('Account creation failed. Please review your details and try again.');
+    } catch { setOtpError('Could not verify your code. Please check your connection and try again.'); }
+    finally { setIsVerifyingOtp(false); }
   };
-
   const resetRegisterModal = () => {
     setIsRegisterOpen(false);
     setRegisterStep(1);

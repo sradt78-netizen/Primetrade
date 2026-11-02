@@ -282,118 +282,48 @@ app.post('/api/copy-traders/copy', requireInvestor, async (req, res) => {
 });
 
 
-// Endpoint: Send OTP to User's Email with full status feedback
+// Server-generated email verification codes. Never return codes to the browser.
 app.post(['/api/send-otp', '/send-otp'], async (req, res) => {
   try {
-    const { email, otp, fullName } = req.body;
-
-    if (!email || !otp) {
-      return res.status(400).json({ success: false, error: 'Email and OTP are required' });
-    }
-
-    console.log(`[OTP Request] Dispatching 6-digit verification code to: ${email}`);
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    const fullName = typeof req.body?.fullName === 'string' ? req.body.fullName.trim().slice(0, 120) : 'Investor';
+    if (!/^\\S+@\\S+\\.\\S+$/.test(email)) return res.status(400).json({ success: false, delivered: false, error: 'Enter a valid email address.' });
+    if (req.body?.type === 'withdrawal') return res.status(410).json({ success: false, delivered: false, error: 'Withdrawal verification is temporarily unavailable. No withdrawal has been authorized.' });
+    const pool = initPgPool();
+    if (!pool) return res.status(503).json({ success: false, delivered: false, error: 'Email verification is temporarily unavailable. Please try again later.' });
     const config = getResendConfig();
-
-    // If Resend API key is available, dispatch live email
-    if (config.isConfigured && config.client) {
-      const isWithdrawal = req.body.type === 'withdrawal';
-      const emailSubject = isWithdrawal
-        ? `${otp} is your Blue Edge Market Withdrawal Verification Code`
-        : `${otp} is your Blue Edge Market verification code`;
-
-      const emailHtml = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="utf-8">
-          <title>${isWithdrawal ? 'Withdrawal Security Verification' : 'Verify Your Blue Edge Market Account'}</title>
-        </head>
-        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #090e1a; color: #f1f5f9; padding: 40px 20px; margin: 0;">
-          <div style="max-width: 520px; margin: 0 auto; background-color: #0d1629; border: 1px solid #1e293b; border-radius: 16px; padding: 36px 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
-            <div style="text-align: center; margin-bottom: 28px;">
-              <h1 style="color: #3b82f6; font-size: 22px; font-weight: 800; letter-spacing: 0.5px; margin: 0;">BLUE EDGE MARKET</h1>
-              <p style="color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; margin: 4px 0 0 0;">Licensed Brokerage Security Desk</p>
-            </div>
-
-            <div style="border-top: 1px solid #1e293b; padding-top: 24px; margin-bottom: 24px;">
-              <h2 style="color: #ffffff; font-size: 18px; font-weight: 700; margin: 0 0 12px 0;">
-                ${isWithdrawal ? 'Withdrawal Authorization Code' : 'Account Verification Code'}
-              </h2>
-              <p style="color: #94a3b8; font-size: 14px; line-height: 1.6; margin: 0 0 20px 0;">
-                Hello ${fullName || 'Investor'},<br><br>
-                ${isWithdrawal
-                  ? 'You have initiated a withdrawal request from your Blue Edge Market account. To authorize and continue with your disbursement transaction, use the 6-digit withdrawal verification code below:'
-                  : 'You are registering for a secure institutional trading account with Blue Edge Market. Use the one-time passcode (OTP) below to complete your email verification:'}
-              </p>
-
-              <div style="background-color: #080d19; border: 1px solid #2563eb; border-radius: 12px; padding: 18px; text-align: center; margin: 24px 0;">
-                <span style="font-family: 'Courier New', Courier, monospace; font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #60a5fa; display: inline-block;">
-                  ${otp}
-                </span>
-              </div>
-
-              <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin: 0;">
-                This passcode expires in <strong>10 minutes</strong>. For your security, never share this code with anyone. If you did not initiate this withdrawal, please contact compliance immediately at support@primetrade.bbroot.com.
-              </p>
-            </div>
-
-            <div style="border-top: 1px solid #1e293b; padding-top: 20px; text-align: center;">
-              <p style="color: #475569; font-size: 11px; margin: 0;">
-                Blue Edge Market LLC · Segregated Custodian Vaults · SIPC Protected<br>
-                Securities and CFDs offered through regulated liquidity providers.
-              </p>
-            </div>
-          </div>
-        </body>
-        </html>
-      `;
-
-      const sendRes = await sendResendMail(
-        config.client,
-        config.fromEmail,
-        email,
-        emailSubject,
-        emailHtml
-      );
-
-      if (sendRes.success) {
-        console.log('[Resend Success]', sendRes.data);
-        return res.json({
-          success: true,
-          delivered: true,
-          method: 'email',
-          provider: 'Resend',
-          message: `Verification code dispatched to ${email}`,
-          deliveryId: sendRes.data?.id,
-          usedSender: sendRes.usedSender
-        });
-      } else {
-        console.warn('[Resend Delivery Failed]', sendRes.error);
-        return res.json({
-          success: true,
-          delivered: false,
-          method: 'email_error',
-          error: sendRes.error,
-          warning: `Resend Notice: ${sendRes.error}`,
-          fallbackOtp: otp
-        });
-      }
-    } else {
-      console.warn('[Resend API Key Notice] RESEND_API_KEY is not configured yet in environment.');
-      return res.json({
-        success: true,
-        delivered: false,
-        method: 'not_configured',
-        warning: 'RESEND_API_KEY is not configured. Verification passcode prepared below.',
-        fallbackOtp: otp
-      });
-    }
-  } catch (err: any) {
-    console.error('[API Error in send-otp]', err);
-    return res.status(500).json({ success: false, error: 'Internal server error dispatching OTP' });
-  }
+    if (!config.isConfigured || !config.client) return res.status(503).json({ success: false, delivered: false, error: 'Email delivery is not configured. Please contact support; no code was sent.' });
+    await pool.query('CREATE TABLE IF NOT EXISTS email_verification_codes (email VARCHAR(255) PRIMARY KEY, code_hash CHAR(64) NOT NULL, expires_at TIMESTAMPTZ NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, verified_at TIMESTAMPTZ, last_sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');
+    const recent = await pool.query("SELECT last_sent_at FROM email_verification_codes WHERE email=$1 AND last_sent_at > NOW() - INTERVAL '60 seconds'", [email]);
+    if (recent.rowCount) return res.status(429).json({ success: false, delivered: false, error: 'Please wait 60 seconds before requesting another code.' });
+    const { randomInt, createHash } = await import('crypto');
+    const code = String(randomInt(100000, 1000000));
+    const codeHash = createHash('sha256').update(code).digest('hex');
+    await pool.query("INSERT INTO email_verification_codes(email,code_hash,expires_at,attempts,verified_at,last_sent_at,created_at) VALUES($1,$2,NOW()+INTERVAL '10 minutes',0,NULL,NOW(),NOW()) ON CONFLICT(email) DO UPDATE SET code_hash=EXCLUDED.code_hash,expires_at=EXCLUDED.expires_at,attempts=0,verified_at=NULL,last_sent_at=NOW(),created_at=NOW()", [email, codeHash]);
+    const safeName = fullName.replace(/[&<>"]/g, (c: string) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c as '&' | '<' | '>' | '"']!));
+    const html = '<!doctype html><html><body><h2>PrimeTrade email verification</h2><p>Hello ' + safeName + ',</p><p>Your email verification code is:</p><p style="font-size:30px;font-weight:bold;letter-spacing:8px">' + code + '</p><p>This code expires in 10 minutes. If you did not request it, ignore this email.</p></body></html>';
+    const sent = await sendResendMail(config.client, config.fromEmail, email, 'Your PrimeTrade verification code', html);
+    if (!sent.success) { await pool.query('DELETE FROM email_verification_codes WHERE email=$1 AND code_hash=$2', [email, codeHash]); return res.status(502).json({ success: false, delivered: false, error: 'We could not deliver the verification email. Check the address or try again later.' }); }
+    return res.json({ success: true, delivered: true, provider: 'Resend', message: 'Verification email sent.' });
+  } catch (err) { console.error('[OTP send]', err); return res.status(503).json({ success: false, delivered: false, error: 'Email verification is temporarily unavailable.' }); }
 });
 
+app.post('/api/verify-otp', async (req, res) => {
+  try {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
+    if (!/^\\S+@\\S+\\.\\S+$/.test(email) || !/^\\d{6}$/.test(code)) return res.status(400).json({ success: false, error: 'Enter a valid email and six-digit code.' });
+    const pool = initPgPool(); if (!pool) return res.status(503).json({ success: false, error: 'Verification service is unavailable.' });
+    const { createHash, timingSafeEqual } = await import('crypto');
+    const result = await pool.query('SELECT code_hash, expires_at, attempts FROM email_verification_codes WHERE email=$1', [email]);
+    if (!result.rowCount) return res.status(400).json({ success: false, error: 'Code expired or not found. Request a new code.' });
+    const row = result.rows[0];
+    if (row.attempts >= 5 || new Date(row.expires_at).getTime() <= Date.now()) { await pool.query('DELETE FROM email_verification_codes WHERE email=$1', [email]); return res.status(400).json({ success: false, error: 'Code expired or too many attempts. Request a new code.' }); }
+    const supplied = Buffer.from(createHash('sha256').update(code).digest('hex')); const expected = Buffer.from(String(row.code_hash));
+    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) { await pool.query('UPDATE email_verification_codes SET attempts=attempts+1 WHERE email=$1', [email]); return res.status(400).json({ success: false, error: 'Incorrect verification code.' }); }
+    await pool.query('UPDATE email_verification_codes SET verified_at=NOW() WHERE email=$1', [email]); return res.json({ success: true, verified: true });
+  } catch (err) { console.error('[OTP verify]', err); return res.status(503).json({ success: false, error: 'Verification service is temporarily unavailable.' }); }
+});
 // Endpoint: Test Email Dispatch
 app.post(['/api/test-email', '/test-email'], requireAdmin, async (req, res) => {
   try {
