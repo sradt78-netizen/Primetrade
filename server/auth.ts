@@ -10,7 +10,7 @@ export type AuthUser = { id:string; username:string; email:string; fullName:stri
 declare global { namespace Express { interface Request { authUser?: AuthUser } } }
 export async function ensureAuthTables() {
  const pool=getPgPool(); if(!pool) throw new Error('Persistent database is not configured');
- await pool.query(`CREATE TABLE IF NOT EXISTS investor_auth (
+ await pool.query(`CREATE TABLE IF NOT EXISTS users (id VARCHAR(100) PRIMARY KEY, username VARCHAR(100) UNIQUE, email VARCHAR(255) UNIQUE, full_name VARCHAR(255), account_balance NUMERIC(15,2) DEFAULT 0.00, demo_balance NUMERIC(15,2) DEFAULT 50000.00, kyc_tier VARCHAR(50) DEFAULT 'Unverified', is_kyc_verified BOOLEAN DEFAULT FALSE, created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)`);\n await pool.query(`CREATE TABLE IF NOT EXISTS investor_auth (
  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), username VARCHAR(100) NOT NULL UNIQUE, email VARCHAR(255) NOT NULL UNIQUE,
  full_name VARCHAR(255) NOT NULL, password_hash TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
  )`);
@@ -30,7 +30,7 @@ export async function registerInvestor(req:Request,res:Response) {
  if(typeof username!=='string'||typeof email!=='string'||typeof fullName!=='string'||typeof password!=='string'||username.trim().length<3||!/^\S+@\S+\.\S+$/.test(email)||fullName.trim().length<2||password.length<10||password.length>200) return res.status(400).json({success:false,message:'Enter valid account details and a password of at least 10 characters.'});
  try { await ensureAuthTables(); const pool=getPgPool()!; const uname=username.trim(); const mail=email.trim().toLowerCase(); const pwh=await passwordHash(password);
  const result=await pool.query('INSERT INTO investor_auth(username,email,full_name,password_hash) VALUES($1,$2,$3,$4) RETURNING id,username,email,full_name',[uname,mail,fullName.trim(),pwh]);
- const token=randomBytes(32).toString('base64url'); await pool.query('INSERT INTO investor_sessions(token_hash,user_id,expires_at) VALUES($1,$2,NOW()+INTERVAL \'30 days\')',[hashToken(token),result.rows[0].id]); setSession(res,token);
+ await pool.query('INSERT INTO users(id,username,email,full_name,account_balance,demo_balance,kyc_tier,is_kyc_verified) VALUES($1,$2,$3,$4,0,50000,\'Unverified\',FALSE) ON CONFLICT (username) DO NOTHING',[result.rows[0].id,uname,mail,fullName.trim()]);\n const token=randomBytes(32).toString('base64url'); await pool.query('INSERT INTO investor_sessions(token_hash,user_id,expires_at) VALUES($1,$2,NOW()+INTERVAL \'30 days\')',[hashToken(token),result.rows[0].id]); setSession(res,token);
  return res.status(201).json({success:true,user:{...result.rows[0],accountBalance:0,demoBalance:50000,isKycVerified:false,kycTier:'Unverified'}});
  } catch(e:any) { if(e.code==='23505') return res.status(409).json({success:false,message:'Username or email is already registered.'}); console.error('[auth register]',e); return res.status(503).json({success:false,message:'Account service is temporarily unavailable.'}); }
 }
