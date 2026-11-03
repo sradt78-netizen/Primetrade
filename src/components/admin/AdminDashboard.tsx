@@ -70,9 +70,9 @@ export const AdminDashboard: React.FC = () => {
     markSupportMessagesAsRead
   } = useApp();
 
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem('bem_admin_auth') === 'true' || sessionStorage.getItem('bem_admin_auth') === 'true';
-  });
+  // Admin access must not be granted by client-controlled browser storage.
+  // This dashboard remains locked until server-side authentication is implemented.
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 
   const [passwordInput, setPasswordInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -504,19 +504,13 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
-  // Handle Admin Password Verification
+  // Fail closed: a browser-only password check is not authentication.
+  // Replace this with a server-verified session before re-enabling admin access.
   const handleAdminLogin = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (passwordInput === 'Admin101@' || !passwordInput) {
-      setIsAuthenticated(true);
-      localStorage.setItem('bem_admin_auth', 'true');
-      sessionStorage.setItem('bem_admin_auth', 'true');
-      setLoginError('');
-      showToast('Admin session authorized: Super Principal Broker', 'success');
-    } else {
-      setLoginError('Invalid Administrator Password. Access Denied.');
-      showToast('Incorrect administrator password', 'error');
-    }
+    setIsAuthenticated(false);
+    setLoginError('Admin sign-in is temporarily disabled until secure server-side authentication is configured.');
+    showToast('Admin access is disabled for security', 'error');
   };
 
   const handleAdminLogout = () => {
@@ -589,21 +583,11 @@ export const AdminDashboard: React.FC = () => {
             </button>
           </form>
 
-          {/* One-Click Master Login for Owner */}
-          <div className="mt-4 pt-4 border-t border-slate-800 space-y-3">
-            <button
-              type="button"
-              onClick={() => {
-                setPasswordInput('Admin101@');
-                handleAdminLogin();
-              }}
-              className="w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-blue-400 hover:text-blue-300 font-bold text-xs uppercase tracking-wider rounded-xl border border-blue-500/30 transition flex items-center justify-center gap-2 cursor-pointer shadow-sm"
-            >
-              <Zap size={15} className="text-amber-400" />
-              <span>One-Click Super Principal Login</span>
-            </button>
-
+          <div className="mt-4 pt-4 border-t border-slate-800">
             <div className="text-center">
+              <p className="text-xs text-amber-300 mb-3">
+                Admin access is locked until server-side authentication is configured.
+              </p>
               <button
                 onClick={() => setActiveTab('landing')}
                 className="text-xs text-slate-400 hover:text-white transition cursor-pointer underline"
